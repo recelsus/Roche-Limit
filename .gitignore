@@ -1,0 +1,105 @@
+# Build directories
+build/
+bin/
+obj/
+out/
+
+# Compiled binaries
+*.exe
+*.out
+*.app
+crow-mock-server
+api-server
+
+# CMake generated files
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CMakeFiles/
+compile_commands.json
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.sln
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+*.log
+logs/
+
+# SSL certificates
+ssl/
+*.crt
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Core dumps
+core
+core.*
+
+# GDB files
+.gdb_history
+
+# Valgrind output
+vgcore.*
+*.memcheck
+
+# Coverage files
+*.gcov
+*.gcda
+*.gcno
+coverage/
+
+# Documentation build
+docs/_build/
+doc/_build/
+
+# Package files
+*.tar.gz
+*.zip
+*.tar.bz2
+*.tar.xz
+
+# Third party libraries
+third_party/
+
+# Local configuration
+config.local.json
+settings.local.json
+
+# Cache directories
+.cache
