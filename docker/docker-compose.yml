@@ -1,0 +1,23 @@
+services:
+  roche-limit:
+    image: ghcr.io/recelsus/roche-limit:latest
+    container_name: roche-limit
+    restart: unless-stopped
+
+    # Test only.
+    # In production, remove `ports` and place this container on the same
+    # internal Docker network as nginx and the backend services.
+    ports:
+      - "8080:8080"
+
+    # Example for production use:
+    # networks:
+    #   - internal
+
+    volumes:
+      - ./data:/var/lib/roche-limit
+
+# Example for production use:
+# networks:
+#   internal:
+#     external: true

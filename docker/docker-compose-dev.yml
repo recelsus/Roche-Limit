@@ -1,0 +1,26 @@
+services:
+  roche-limit:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: roche-limit:dev
+    container_name: roche-limit-dev
+    restart: unless-stopped
+
+    # Test only.
+    # In production, remove `ports` and place this container on the same
+    # internal Docker network as nginx and the backend services.
+    ports:
+      - "8080:8080"
+
+    # Example for production use:
+    # networks:
+    #   - internal
+
+    volumes:
+      - ./data:/var/lib/roche-limit
+
+# Example for production use:
+# networks:
+#   internal:
+#     external: true
