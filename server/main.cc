@@ -1,6 +1,7 @@
 #include <drogon/drogon.h>
 
 #include <iostream>
+#include <memory>
 
 #include "auth_core/auth_service.h"
 #include "auth_store/rule_repository.h"
@@ -15,8 +16,11 @@ int main(int argc, char* argv[]) {
     const auto executable_path = argc > 0 ? std::filesystem::path(argv[0]) : std::filesystem::path{};
     const auto bootstrap_result = roche_limit::auth_store::bootstrap_sqlite_schema(executable_path);
     const auto config = roche_limit::server::config::load_app_config(bootstrap_result.database_path);
-    roche_limit::auth_store::RuleRepository repository(config.database_path);
-    roche_limit::auth_core::AuthService auth_service(repository);
+    auto repository = std::make_shared<roche_limit::auth_store::RuleRepository>(config.database_path);
+    auto auth_service = std::make_shared<roche_limit::auth_core::AuthService>(*repository);
+    std::cout << "Repository address: " << static_cast<const void*>(repository.get()) << std::endl;
+    std::cout << "AuthService repository address: "
+              << static_cast<const void*>(auth_service->repository_address()) << std::endl;
 
     roche_limit::server::http::register_root_routes();
     roche_limit::server::http::register_auth_routes(auth_service);

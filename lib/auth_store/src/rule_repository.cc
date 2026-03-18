@@ -4,6 +4,7 @@
 
 #include <sqlite3.h>
 
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -217,6 +218,8 @@ RuleRepository::RuleRepository(std::filesystem::path database_path)
     : database_path_(std::move(database_path)) {}
 
 std::vector<IpRuleRecord> RuleRepository::list_ip_rules(IpRuleEffect effect) const {
+    std::cerr << "[auth_store] list_ip_rules begin effect="
+              << (effect == IpRuleEffect::Allow ? "allow" : "deny") << std::endl;
     static constexpr auto kSql = R"SQL(
 SELECT id, value_text, address_family, rule_type, prefix_length, effect, enabled, note, created_at, updated_at
 FROM ip_rules
@@ -240,6 +243,7 @@ ORDER BY prefix_length DESC, id ASC;
         results.push_back(read_ip_rule(statement.get()));
     }
 
+    std::cerr << "[auth_store] list_ip_rules done count=" << results.size() << std::endl;
     return results;
 }
 
@@ -249,7 +253,10 @@ std::optional<IpServiceLevelRecord> RuleRepository::find_ip_service_level(
     static constexpr auto kSql = R"SQL(
 SELECT id, ip_rule_id, service_name, access_level, enabled, note, created_at, updated_at
 FROM ip_service_levels
-WHERE ip_rule_id = ?1 AND service_name = ?2 AND enabled = 1
+WHERE ip_rule_id = ?1
+  AND enabled = 1
+  AND (service_name = ?2 OR service_name = '*')
+ORDER BY CASE WHEN service_name = ?2 THEN 0 ELSE 1 END, id ASC
 LIMIT 1;
 )SQL";
 
@@ -272,6 +279,7 @@ LIMIT 1;
 std::optional<ApiKeyRecord> RuleRepository::find_api_key(
     std::string_view key_hash,
     std::string_view service_name) const {
+    std::cerr << "[auth_store] find_api_key begin service=" << service_name << std::endl;
     static constexpr auto kSql = R"SQL(
 SELECT id, key_plain, key_hash, key_prefix, service_name, access_level, enabled, expires_at, note, created_at, updated_at
 FROM api_keys
@@ -289,12 +297,14 @@ LIMIT 1;
 
     const auto step_result = sqlite3_step(statement.get());
     if (step_result == SQLITE_DONE) {
+        std::cerr << "[auth_store] find_api_key no match" << std::endl;
         return std::nullopt;
     }
     if (step_result != SQLITE_ROW) {
         throw std::runtime_error("failed to fetch api key");
     }
 
+    std::cerr << "[auth_store] find_api_key matched" << std::endl;
     return read_api_key(statement.get());
 }
 

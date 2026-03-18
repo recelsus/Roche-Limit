@@ -256,7 +256,7 @@ void print_usage() {
               << "  roche_limit_cli ip list\n"
               << "  roche_limit_cli ip add <ip-or-cidr> --allow|--deny [--note TEXT]\n"
               << "  roche_limit_cli ip set <rule-id> [--value <ip-or-cidr>] [--allow|--deny] [--note TEXT]\n"
-              << "  roche_limit_cli ip set <ip-or-cidr> --service <name> --level <0-90> [--note TEXT]\n"
+              << "  roche_limit_cli ip set <ip-or-cidr> [--service <name|*>] --level <0-90> [--note TEXT]\n"
               << "  roche_limit_cli ip remove <rule-id>\n"
               << "  roche_limit_cli key list\n"
               << "  roche_limit_cli key add <plain-api-key> [--service <name>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
@@ -290,6 +290,23 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
             }
         }
         print_table({"id", "effect", "value", "family", "type", "prefix", "status"}, rows);
+
+        const auto service_levels = repository.list_ip_service_levels();
+        if (!service_levels.empty()) {
+            std::cout << '\n';
+            std::vector<std::vector<std::string>> level_rows;
+            for (const auto& record : service_levels) {
+                level_rows.push_back({
+                    std::to_string(record.id),
+                    std::to_string(record.ip_rule_id),
+                    printable_service_name(std::string_view(record.service_name)),
+                    std::to_string(record.access_level),
+                    bool_label(record.enabled),
+                    record.note.has_value() ? *record.note : "-",
+                });
+            }
+            print_table({"id", "ip_rule_id", "service", "level", "status", "note"}, level_rows);
+        }
         return;
     }
 
@@ -337,7 +354,7 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
 
             const auto record_id = repository.upsert_ip_service_level(NewIpServiceLevel{
                 .ip_rule_id = matched_rule->id,
-                .service_name = require_option(options, "--service"),
+                .service_name = optional_option(options, "--service").value_or("*"),
                 .access_level = parse_int(require_option(options, "--level"), "--level"),
                 .note = optional_option(options, "--note"),
             });

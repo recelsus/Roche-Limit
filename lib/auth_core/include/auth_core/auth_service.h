@@ -11,6 +11,7 @@ public:
     explicit AuthService(const AuthRepository& repository);
 
     AuthResult authorize(const RequestContext& request_context) const;
+    const AuthRepository* repository_address() const noexcept;
 
 private:
     const AuthRepository& repository_;
