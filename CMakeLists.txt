@@ -5,11 +5,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+enable_testing()
+
 add_subdirectory(lib/common)
 add_subdirectory(lib/auth_core)
 add_subdirectory(lib/auth_store)
 add_subdirectory(server)
 add_subdirectory(tools)
+add_subdirectory(tests)
 
 set(LINK_COMPILE_COMMANDS_SCRIPT ${CMAKE_BINARY_DIR}/link_compile_commands.cmake)
 file(WRITE ${LINK_COMPILE_COMMANDS_SCRIPT}

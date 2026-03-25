@@ -103,3 +103,6 @@ settings.local.json
 
 # Cache directories
 .cache
+
+# Docker runtime data
+docker/data/
