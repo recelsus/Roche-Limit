@@ -55,6 +55,7 @@ COPY . /src
 RUN cmake -S /src -B /src/build -GNinja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_PREFIX_PATH=/opt/drogon \
+        -DBUILD_TESTING=OFF \
     && cmake --build /src/build --target roche-limit roche_limit_cli
 
 FROM debian:bookworm-slim AS runtime
