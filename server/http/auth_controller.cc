@@ -2,6 +2,7 @@
 
 #include "auth_core/auth_result.h"
 #include "auth_core/auth_service.h"
+#include "common/debug_log.h"
 #include "request_extractor.h"
 
 #include <drogon/drogon.h>
@@ -25,9 +26,11 @@ void register_auth_routes(std::shared_ptr<const roche_limit::auth_core::AuthServ
             std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
             try {
                 const auto request_context = build_request_context(request);
-                LOG_INFO << "auth request received service=" << request_context.service_name
-                         << " client_ip=" << request_context.client_ip
-                         << " api_key_present=" << (request_context.api_key.has_value() ? "yes" : "no");
+                if (roche_limit::common::verbose_logging_enabled()) {
+                    LOG_INFO << "auth request received service=" << request_context.service_name
+                             << " client_ip=" << request_context.client_ip
+                             << " api_key_present=" << (request_context.api_key.has_value() ? "yes" : "no");
+                }
                 if (request_context.service_name.empty()) {
                     auto response = drogon::HttpResponse::newHttpResponse();
                     response->setStatusCode(drogon::k403Forbidden);
@@ -38,13 +41,17 @@ void register_auth_routes(std::shared_ptr<const roche_limit::auth_core::AuthServ
                     return;
                 }
 
-                LOG_INFO << "auth request authorize begin";
+                if (roche_limit::common::verbose_logging_enabled()) {
+                    LOG_INFO << "auth request authorize begin";
+                }
                 const auto auth_result = auth_service->authorize(request_context);
-                LOG_INFO << "auth request authorize done decision="
-                         << (auth_result.decision == roche_limit::auth_core::AuthDecision::Allow ? "allow"
-                                                                                                 : "deny")
-                         << " level=" << auth_result.access_level
-                         << " reason=" << auth_result.reason;
+                if (roche_limit::common::verbose_logging_enabled()) {
+                    LOG_INFO << "auth request authorize done decision="
+                             << (auth_result.decision == roche_limit::auth_core::AuthDecision::Allow ? "allow"
+                                                                                                     : "deny")
+                             << " level=" << auth_result.access_level
+                             << " reason=" << auth_result.reason;
+                }
 
                 auto response = drogon::HttpResponse::newHttpResponse();
                 response->setStatusCode(status_from_result(auth_result));

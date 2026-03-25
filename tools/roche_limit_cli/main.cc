@@ -2,10 +2,12 @@
 #include "auth_core/ip_rule_record.h"
 #include "auth_store/rule_repository.h"
 #include "auth_store/schema_bootstrap.h"
+#include "common/debug_log.h"
 
 #include <arpa/inet.h>
 #include <cstdlib>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <iomanip>
@@ -500,7 +502,12 @@ void handle_key_command(const RuleRepository& repository, const std::vector<std:
 
 int main(int argc, char* argv[]) {
     try {
-        const std::vector<std::string> args(argv, argv + argc);
+        std::vector<std::string> args(argv, argv + argc);
+        if (const auto verbose_it = std::find(args.begin(), args.end(), "--verbose");
+            verbose_it != args.end()) {
+            roche_limit::common::set_verbose_logging_enabled(true);
+            args.erase(verbose_it);
+        }
         if (args.size() < 2) {
             print_usage();
             return 1;

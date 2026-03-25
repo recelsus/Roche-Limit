@@ -8,6 +8,21 @@ namespace roche_limit::server::http {
 
 namespace {
 
+bool starts_with_bearer_token(std::string_view value) {
+    constexpr std::string_view kBearerPrefix = "Bearer ";
+    if (value.size() < kBearerPrefix.size()) {
+        return false;
+    }
+
+    for (std::size_t index = 0; index < kBearerPrefix.size(); ++index) {
+        if (std::tolower(static_cast<unsigned char>(value[index])) !=
+            std::tolower(static_cast<unsigned char>(kBearerPrefix[index]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string trim(std::string value) {
     auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
     value.erase(value.begin(),
@@ -28,9 +43,8 @@ std::string extract_forwarded_ip(const drogon::HttpRequestPtr& request) {
 
 std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request) {
     const auto authorization = request->getHeader("Authorization");
-    constexpr std::string_view kBearerPrefix = "Bearer ";
-    if (authorization.starts_with(kBearerPrefix)) {
-        return authorization.substr(kBearerPrefix.size());
+    if (starts_with_bearer_token(authorization)) {
+        return authorization.substr(std::string_view("Bearer ").size());
     }
 
     const auto explicit_api_key = request->getHeader("X-API-Key");
