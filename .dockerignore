@@ -1,0 +1,11 @@
+.git
+.cache
+build
+app
+uploads
+docs
+dockersample
+tests
+README.md
+*.sqlite3
+compile_commands.json
