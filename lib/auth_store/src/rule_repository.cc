@@ -1,5 +1,6 @@
 #include "auth_store/rule_repository.h"
 
+#include "common/debug_log.h"
 #include "auth_store/sqlite_connection.h"
 
 #include <sqlite3.h>
@@ -218,8 +219,10 @@ RuleRepository::RuleRepository(std::filesystem::path database_path)
     : database_path_(std::move(database_path)) {}
 
 std::vector<IpRuleRecord> RuleRepository::list_ip_rules(IpRuleEffect effect) const {
-    std::cerr << "[auth_store] list_ip_rules begin effect="
-              << (effect == IpRuleEffect::Allow ? "allow" : "deny") << std::endl;
+    if (roche_limit::common::verbose_logging_enabled()) {
+        std::cerr << "[auth_store] list_ip_rules begin effect="
+                  << (effect == IpRuleEffect::Allow ? "allow" : "deny") << std::endl;
+    }
     static constexpr auto kSql = R"SQL(
 SELECT id, value_text, address_family, rule_type, prefix_length, effect, enabled, note, created_at, updated_at
 FROM ip_rules
@@ -243,7 +246,9 @@ ORDER BY prefix_length DESC, id ASC;
         results.push_back(read_ip_rule(statement.get()));
     }
 
-    std::cerr << "[auth_store] list_ip_rules done count=" << results.size() << std::endl;
+    if (roche_limit::common::verbose_logging_enabled()) {
+        std::cerr << "[auth_store] list_ip_rules done count=" << results.size() << std::endl;
+    }
     return results;
 }
 
@@ -279,7 +284,9 @@ LIMIT 1;
 std::optional<ApiKeyRecord> RuleRepository::find_api_key(
     std::string_view key_hash,
     std::string_view service_name) const {
-    std::cerr << "[auth_store] find_api_key begin service=" << service_name << std::endl;
+    if (roche_limit::common::verbose_logging_enabled()) {
+        std::cerr << "[auth_store] find_api_key begin service=" << service_name << std::endl;
+    }
     static constexpr auto kSql = R"SQL(
 SELECT id, key_plain, key_hash, key_prefix, service_name, access_level, enabled, expires_at, note, created_at, updated_at
 FROM api_keys
@@ -297,14 +304,18 @@ LIMIT 1;
 
     const auto step_result = sqlite3_step(statement.get());
     if (step_result == SQLITE_DONE) {
-        std::cerr << "[auth_store] find_api_key no match" << std::endl;
+        if (roche_limit::common::verbose_logging_enabled()) {
+            std::cerr << "[auth_store] find_api_key no match" << std::endl;
+        }
         return std::nullopt;
     }
     if (step_result != SQLITE_ROW) {
         throw std::runtime_error("failed to fetch api key");
     }
 
-    std::cerr << "[auth_store] find_api_key matched" << std::endl;
+    if (roche_limit::common::verbose_logging_enabled()) {
+        std::cerr << "[auth_store] find_api_key matched" << std::endl;
+    }
     return read_api_key(statement.get());
 }
 

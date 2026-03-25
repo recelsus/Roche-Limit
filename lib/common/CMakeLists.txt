@@ -1,6 +1,7 @@
 find_package(OpenSSL REQUIRED)
 
 add_library(roche_limit_common
+    src/debug_log.cc
     src/hash_util.cc
 )
 
