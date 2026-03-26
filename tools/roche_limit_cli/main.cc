@@ -258,6 +258,7 @@ void print_usage() {
               << "  roche_limit_cli ip list\n"
               << "  roche_limit_cli ip add <ip-or-cidr> --allow|--deny [--note TEXT]\n"
               << "  roche_limit_cli ip set <rule-id> [--value <ip-or-cidr>] [--allow|--deny] [--note TEXT]\n"
+              << "  roche_limit_cli ip set <rule-id> [--service <name|*>] [--level <0-90>] [--note TEXT]\n"
               << "  roche_limit_cli ip set <ip-or-cidr> [--service <name|*>] --level <0-90> [--note TEXT]\n"
               << "  roche_limit_cli ip remove <rule-id>\n"
               << "  roche_limit_cli key list\n"
@@ -358,6 +359,72 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
                 .ip_rule_id = matched_rule->id,
                 .service_name = optional_option(options, "--service").value_or("*"),
                 .access_level = parse_int(require_option(options, "--level"), "--level"),
+                .note = optional_option(options, "--note"),
+            });
+            std::cout << "upserted ip service level id=" << record_id << '\n';
+            return;
+        }
+
+        const bool updates_service_level =
+            options.contains("--level") || options.contains("--service");
+        if (updates_service_level) {
+            const auto ip_rule_id = parse_int64(target, "ip rule id");
+            const auto service_levels = repository.list_ip_service_levels();
+
+            std::optional<IpServiceLevelRecord> matched_record;
+            std::string resolved_service_name = optional_option(options, "--service").value_or("");
+            if (resolved_service_name == "all") {
+                resolved_service_name = "*";
+            }
+
+            if (!resolved_service_name.empty()) {
+                for (const auto& record : service_levels) {
+                    if (record.ip_rule_id == ip_rule_id && record.service_name == resolved_service_name &&
+                        record.enabled) {
+                        matched_record = record;
+                        break;
+                    }
+                }
+            } else {
+                std::vector<IpServiceLevelRecord> matched_records;
+                for (const auto& record : service_levels) {
+                    if (record.ip_rule_id == ip_rule_id && record.enabled) {
+                        matched_records.push_back(record);
+                    }
+                }
+
+                if (matched_records.size() == 1) {
+                    matched_record = matched_records.front();
+                    resolved_service_name = matched_record->service_name;
+                } else {
+                    const auto wildcard_it = std::find_if(
+                        matched_records.begin(),
+                        matched_records.end(),
+                        [](const IpServiceLevelRecord& record) { return record.service_name == "*"; });
+                    if (wildcard_it != matched_records.end()) {
+                        matched_record = *wildcard_it;
+                        resolved_service_name = "*";
+                    } else if (matched_records.empty()) {
+                        resolved_service_name = "*";
+                    } else {
+                        fail("multiple ip service levels exist for this ip rule; specify --service");
+                    }
+                }
+            }
+
+            int access_level = 0;
+            if (const auto level = optional_option(options, "--level"); level.has_value()) {
+                access_level = parse_int(*level, "--level");
+            } else if (matched_record.has_value()) {
+                access_level = matched_record->access_level;
+            } else {
+                fail("ip service level update requires --level when no existing service-level record exists");
+            }
+
+            const auto record_id = repository.upsert_ip_service_level(NewIpServiceLevel{
+                .ip_rule_id = ip_rule_id,
+                .service_name = resolved_service_name.empty() ? "*" : resolved_service_name,
+                .access_level = access_level,
                 .note = optional_option(options, "--note"),
             });
             std::cout << "upserted ip service level id=" << record_id << '\n';
