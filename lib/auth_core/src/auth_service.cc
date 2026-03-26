@@ -218,6 +218,20 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
     if (roche_limit::common::verbose_logging_enabled()) {
         std::cerr << "[auth_core] final level=" << final_access_level << std::endl;
     }
+    if (request_context.required_access_level.has_value() &&
+        final_access_level < *request_context.required_access_level) {
+        if (roche_limit::common::verbose_logging_enabled()) {
+            std::cerr << "[auth_core] insufficient level required="
+                      << *request_context.required_access_level << std::endl;
+        }
+        return AuthResult{
+            .decision = AuthDecision::Deny,
+            .access_level = 0,
+            .reason = "insufficient_level",
+            .matched_ip_rule_id = matched_ip_rule_id,
+            .api_key_record_id = api_key_record_id,
+        };
+    }
     if (final_access_level <= 0) {
         return AuthResult{
             .decision = AuthDecision::Deny,

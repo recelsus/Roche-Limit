@@ -190,6 +190,56 @@ void test_allow_ip_service_override_fallback() {
            "matched ip rule id should be returned");
 }
 
+void test_required_access_level_denies_when_below_threshold() {
+    FakeRepository repository;
+    repository.allow_rules = {
+        make_ip_rule(5, "203.0.113.44", IpRuleEffect::Allow, IpRuleType::Single, 32),
+    };
+    repository.ip_service_levels = {
+        IpServiceLevelRecord{
+            .id = 6,
+            .ip_rule_id = 5,
+            .service_name = "*",
+            .access_level = 60,
+            .enabled = true,
+            .note = std::nullopt,
+            .created_at = "",
+            .updated_at = "",
+        },
+    };
+    AuthService service(repository);
+
+    const AuthResult result = service.authorize(RequestContext{
+        .client_ip = "203.0.113.44",
+        .service_name = "karing",
+        .api_key = std::nullopt,
+        .required_access_level = 90,
+    });
+
+    expect(result.decision == AuthDecision::Deny, "required level should deny request");
+    expect(result.access_level == 0, "required level denial should return level 0");
+    expect(result.reason == "insufficient_level", "required level should set reason");
+}
+
+void test_required_access_level_allows_exact_match() {
+    FakeRepository repository;
+    repository.api_keys = {
+        make_api_key(7, "required-level-key", std::string("karing"), 90),
+    };
+    AuthService service(repository);
+
+    const AuthResult result = service.authorize(RequestContext{
+        .client_ip = "198.51.100.20",
+        .service_name = "karing",
+        .api_key = std::string("required-level-key"),
+        .required_access_level = 90,
+    });
+
+    expect(result.decision == AuthDecision::Allow, "exact required level should allow request");
+    expect(result.access_level == 90, "required level allow should preserve granted level");
+    expect(result.reason == "api_key_elevated", "api key reason should be preserved");
+}
+
 }  // namespace
 
 int main() {
@@ -198,6 +248,8 @@ int main() {
     test_ip_deny_wins();
     test_unknown_ip_with_api_key_elevation();
     test_allow_ip_service_override_fallback();
+    test_required_access_level_denies_when_below_threshold();
+    test_required_access_level_allows_exact_match();
 
     std::cout << "roche_limit_auth_core_tests: ok" << std::endl;
     return 0;

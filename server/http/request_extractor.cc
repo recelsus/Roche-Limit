@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <string>
 
 namespace roche_limit::server::http {
@@ -60,6 +61,23 @@ std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request
     return std::nullopt;
 }
 
+std::optional<int> extract_required_access_level(const drogon::HttpRequestPtr& request) {
+    const auto header_value = trim(request->getHeader("X-Required-Level"));
+    if (header_value.empty()) {
+        return std::nullopt;
+    }
+
+    int parsed_level = 0;
+    const auto* begin = header_value.data();
+    const auto* end = begin + header_value.size();
+    const auto result = std::from_chars(begin, end, parsed_level);
+    if (result.ec != std::errc{} || result.ptr != end || parsed_level < 0) {
+        return std::nullopt;
+    }
+
+    return parsed_level;
+}
+
 }  // namespace
 
 roche_limit::auth_core::RequestContext build_request_context(
@@ -76,6 +94,7 @@ roche_limit::auth_core::RequestContext build_request_context(
         .client_ip = std::move(client_ip),
         .service_name = trim(request->getHeader("X-Target-Service")),
         .api_key = extract_api_key(request),
+        .required_access_level = extract_required_access_level(request),
     };
 }
 
