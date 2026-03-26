@@ -18,11 +18,6 @@ server {
 
     location / {
         auth_request /__roche_limit_auth;
-        auth_request_set $auth_level $upstream_http_x_auth_level;
-        auth_request_set $auth_reason $upstream_http_x_auth_reason;
-
-        proxy_set_header X-Auth-Level $auth_level;
-        proxy_set_header X-Auth-Reason $auth_reason;
         proxy_pass http://app_primary;
     }
 
@@ -33,6 +28,7 @@ server {
         proxy_set_header Content-Length "";
 
         proxy_set_header X-Target-Service primary;
+        proxy_set_header X-Required-Level 30;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header Authorization $http_authorization;
@@ -42,9 +38,10 @@ server {
 ```
 
 - `X-Target-Service` は必須
+- `X-Required-Level` を渡すと `/auth` 側で必要レベル判定を行う
 - API キーは `Authorization: Bearer ...` を優先し、なければ `X-API-Key` を利用
 - `X-Real-IP` と `X-Forwarded-For` は両方渡しておく
-- `auth_request_set` で `X-Auth-Level` と `X-Auth-Reason` を受け取り、backend へ引き継げる
+- `auth_request_set` は backend へ補助情報を引き継ぎたい場合のみ利用する
 
 #### Multiple service example
 
@@ -67,8 +64,6 @@ server {
 
     location / {
         auth_request /__roche_limit_auth_primary;
-        auth_request_set $auth_level $upstream_http_x_auth_level;
-        proxy_set_header X-Auth-Level $auth_level;
         proxy_pass http://app_primary;
     }
 
@@ -79,6 +74,7 @@ server {
         proxy_set_header Content-Length "";
 
         proxy_set_header X-Target-Service primary;
+        proxy_set_header X-Required-Level 30;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header Authorization $http_authorization;
@@ -92,8 +88,6 @@ server {
 
     location / {
         auth_request /__roche_limit_auth_secondary;
-        auth_request_set $auth_level $upstream_http_x_auth_level;
-        proxy_set_header X-Auth-Level $auth_level;
         proxy_pass http://app_secondary;
     }
 
@@ -104,6 +98,7 @@ server {
         proxy_set_header Content-Length "";
 
         proxy_set_header X-Target-Service secondary;
+        proxy_set_header X-Required-Level 60;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header Authorization $http_authorization;
@@ -112,25 +107,51 @@ server {
 }
 ```
 
-#### Branching based on access level
+#### Requiring a level per location
 
-`Roche-Limit` は `X-Auth-Level` を返すため、必要なら nginx 側で分岐できます。  
-ただし複雑にしすぎず、基本は backend 側へそのまま渡す運用を推奨します。
+`Roche-Limit` は `X-Required-Level` を受け取れるため、location ごとに必要レベルを nginx 側で定義できます。  
+分岐ルール自体は nginx に置いたまま、判定は `/auth` に任せる形です。
 
-簡単な例:
+例:
 
 ```nginx
 location /admin/ {
-    auth_request /__roche_limit_auth;
-    auth_request_set $auth_level $upstream_http_x_auth_level;
-
-    if ($auth_level != 90) {
-        return 403;
-    }
-
+    auth_request /__roche_limit_auth_90;
     proxy_pass http://app_primary;
+}
+
+location /member/ {
+    auth_request /__roche_limit_auth_60;
+    proxy_pass http://app_primary;
+}
+
+location = /__roche_limit_auth_90 {
+    internal;
+    proxy_pass http://roche_limit_auth/auth;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+
+    proxy_set_header X-Target-Service primary;
+    proxy_set_header X-Required-Level 90;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header X-API-Key $http_x_api_key;
+}
+
+location = /__roche_limit_auth_60 {
+    internal;
+    proxy_pass http://roche_limit_auth/auth;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+
+    proxy_set_header X-Target-Service primary;
+    proxy_set_header X-Required-Level 60;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header X-API-Key $http_x_api_key;
 }
 ```
 
-本番では `if` を多用するより、`map` や location 分割で整理する方が安全です。
-
+この形なら nginx は `auth_request` の可否だけを見ればよく、`auth_request_set` の値を `if` で評価する必要はありません。

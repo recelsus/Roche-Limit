@@ -54,6 +54,7 @@ nginxの`auth_request`を前提の認証専用サーバー。
 
 `X-Target-Service` は必須です。  
 API キーは `Bearer` を優先し、次に `X-API-Key` を参照します。
+必要であれば `X-Required-Level` を nginx から渡し、`/auth` 側で必要レベル判定を行えます。
 
 ## CLI
 
@@ -78,11 +79,6 @@ server {
 
     location / {
         auth_request /__roche_limit_auth;
-        auth_request_set $auth_level $upstream_http_x_auth_level;
-        auth_request_set $auth_reason $upstream_http_x_auth_reason;
-
-        proxy_set_header X-Auth-Level $auth_level;
-        proxy_set_header X-Auth-Reason $auth_reason;
         proxy_pass http://app_primary;
     }
 
@@ -93,6 +89,7 @@ server {
         proxy_set_header Content-Length "";
 
         proxy_set_header X-Target-Service primary;
+        proxy_set_header X-Required-Level 30;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header Authorization $http_authorization;
@@ -101,26 +98,33 @@ server {
 }
 ```
 
-アクセスレベル `60` 以下のみを許可したい場合の例:
+アクセスレベル `90` 以上を要求したい場合の例:
 
 ```nginx
-location /path-low/ {
-    auth_request /__roche_limit_auth;
-    auth_request_set $auth_level $upstream_http_x_auth_level;
-
-    if ($auth_level !~ "^(10|30|60)$") {
-        return 403;
-    }
-
-    proxy_set_header X-Auth-Level $auth_level;
+location /admin/ {
+    auth_request /__roche_limit_auth_90;
     proxy_pass http://app_primary;
+}
+
+location = /__roche_limit_auth_90 {
+    internal;
+    proxy_pass http://roche_limit_auth/auth;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+
+    proxy_set_header X-Target-Service primary;
+    proxy_set_header X-Required-Level 90;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header X-API-Key $http_x_api_key;
 }
 ```
 
 この例では:
 
-- `10`, `30`, `60` は許可
-- `90` は拒否
-- `0` は通常 `auth_request` の段階で拒否
+- `granted level >= 90` のときのみ通過
+- `90` 未満は `/auth` が `403` を返す
+- nginx は `auth_request` の結果だけを見ればよい
 
 詳細なサンプルは [`docs/nginx-sample.md`](./docs/nginx-sample.md) を参照。

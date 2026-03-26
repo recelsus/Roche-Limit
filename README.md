@@ -56,6 +56,7 @@ The default level is `30`.
 
 `X-Target-Service` is required.  
 For API keys, `Bearer` is checked first, then `X-API-Key`.
+If needed, nginx may also pass `X-Required-Level`, and `/auth` will enforce the required level directly.
 
 ## CLI
 
@@ -80,11 +81,6 @@ server {
 
     location / {
         auth_request /__roche_limit_auth;
-        auth_request_set $auth_level $upstream_http_x_auth_level;
-        auth_request_set $auth_reason $upstream_http_x_auth_reason;
-
-        proxy_set_header X-Auth-Level $auth_level;
-        proxy_set_header X-Auth-Reason $auth_reason;
         proxy_pass http://app_primary;
     }
 
@@ -95,6 +91,7 @@ server {
         proxy_set_header Content-Length "";
 
         proxy_set_header X-Target-Service primary;
+        proxy_set_header X-Required-Level 30;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header Authorization $http_authorization;
@@ -103,26 +100,33 @@ server {
 }
 ```
 
-Example allowing only access levels `60` and below:
+Example requiring access level `90` or higher:
 
 ```nginx
-location /path-low/ {
-    auth_request /__roche_limit_auth;
-    auth_request_set $auth_level $upstream_http_x_auth_level;
-
-    if ($auth_level !~ "^(10|30|60)$") {
-        return 403;
-    }
-
-    proxy_set_header X-Auth-Level $auth_level;
+location /admin/ {
+    auth_request /__roche_limit_auth_90;
     proxy_pass http://app_primary;
+}
+
+location = /__roche_limit_auth_90 {
+    internal;
+    proxy_pass http://roche_limit_auth/auth;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+
+    proxy_set_header X-Target-Service primary;
+    proxy_set_header X-Required-Level 90;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Authorization $http_authorization;
+    proxy_set_header X-API-Key $http_x_api_key;
 }
 ```
 
 In this example:
 
-- `10`, `30`, and `60` are allowed
-- `90` is rejected
-- `0` is normally rejected earlier by `auth_request`
+- requests pass only when `granted level >= 90`
+- levels below `90` are rejected by `/auth`
+- nginx only needs the `auth_request` result
 
 See [`docs/nginx-sample.md`](./docs/nginx-sample.md) for more detailed examples.
