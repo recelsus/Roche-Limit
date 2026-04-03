@@ -9,6 +9,8 @@ namespace roche_limit::server::http {
 
 namespace {
 
+constexpr std::string_view kSessionCookieName = "roche_limit_session";
+
 bool starts_with_bearer_token(std::string_view value) {
     constexpr std::string_view kBearerPrefix = "Bearer ";
     if (value.size() < kBearerPrefix.size()) {
@@ -40,6 +42,17 @@ std::string extract_forwarded_ip(const drogon::HttpRequestPtr& request) {
 
     const auto separator = forwarded_for.find(',');
     return trim(forwarded_for.substr(0, separator));
+}
+
+std::string extract_client_ip(const drogon::HttpRequestPtr& request) {
+    auto client_ip = trim(request->getHeader("X-Real-IP"));
+    if (client_ip.empty()) {
+        client_ip = extract_forwarded_ip(request);
+    }
+    if (client_ip.empty()) {
+        client_ip = request->peerAddr().toIp();
+    }
+    return client_ip;
 }
 
 std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request) {
@@ -82,19 +95,32 @@ std::optional<int> extract_required_access_level(const drogon::HttpRequestPtr& r
 
 roche_limit::auth_core::RequestContext build_request_context(
     const drogon::HttpRequestPtr& request) {
-    auto client_ip = trim(request->getHeader("X-Real-IP"));
-    if (client_ip.empty()) {
-        client_ip = extract_forwarded_ip(request);
-    }
-    if (client_ip.empty()) {
-        client_ip = request->peerAddr().toIp();
-    }
-
     return roche_limit::auth_core::RequestContext{
-        .client_ip = std::move(client_ip),
+        .client_ip = extract_client_ip(request),
         .service_name = trim(request->getHeader("X-Target-Service")),
         .api_key = extract_api_key(request),
         .required_access_level = extract_required_access_level(request),
+    };
+}
+
+roche_limit::auth_core::LoginRequest build_login_request(
+    const drogon::HttpRequestPtr& request) {
+    return roche_limit::auth_core::LoginRequest{
+        .client_ip = extract_client_ip(request),
+        .username = request->getParameter("username"),
+        .password = request->getParameter("password"),
+    };
+}
+
+roche_limit::auth_core::SessionAuthRequest build_session_auth_request(
+    const drogon::HttpRequestPtr& request) {
+    const auto session_cookie = request->getCookie(std::string(kSessionCookieName));
+    return roche_limit::auth_core::SessionAuthRequest{
+        .client_ip = extract_client_ip(request),
+        .service_name = trim(request->getHeader("X-Target-Service")),
+        .required_access_level = extract_required_access_level(request),
+        .session_token = session_cookie.empty() ? std::nullopt
+                                                : std::optional<std::string>(session_cookie),
     };
 }
 

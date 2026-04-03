@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roche-Limit Login</title>
+  <link rel="stylesheet" href="login.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <span class="badge">Roche-Limit</span>
+      <h1>Sign in</h1>
+      <p>Use the account issued through the CLI. This page only performs authentication.</p>
+    </section>
+
+    <form id="login-form" method="post" action="/login">
+      <label>
+        ID
+        <input type="text" name="username" autocomplete="username" required minlength="3">
+      </label>
+
+      <label>
+        Password
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+
+      <div id="message" class="message" aria-live="polite"></div>
+      <button type="submit">Login</button>
+    </form>
+  </main>
+
+  <script src="login.js"></script>
+</body>
+</html>

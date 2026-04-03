@@ -105,6 +105,10 @@ BootstrapResult bootstrap_at_path(const std::filesystem::path& database_path,
         "ip_rules",
         "ip_service_levels",
         "api_keys",
+        "users",
+        "user_credentials",
+        "user_service_levels",
+        "user_sessions",
     };
 
     for (const auto* table_name : expected_tables) {

@@ -190,6 +190,23 @@ void test_allow_ip_service_override_fallback() {
            "matched ip rule id should be returned");
 }
 
+void test_allow_ip_without_service_level_defaults_to_60() {
+    FakeRepository repository;
+    repository.allow_rules = {
+        make_ip_rule(5, "192.0.2.10", IpRuleEffect::Allow, IpRuleType::Single, 32),
+    };
+    AuthService service(repository);
+
+    const AuthResult result = service.authorize(RequestContext{
+        .client_ip = "192.0.2.10",
+        .service_name = "primary",
+        .api_key = std::nullopt,
+    });
+
+    expect(result.decision == AuthDecision::Allow, "allow ip should allow request");
+    expect(result.access_level == 60, "allow ip without override should default to 60");
+}
+
 void test_required_access_level_denies_when_below_threshold() {
     FakeRepository repository;
     repository.allow_rules = {
@@ -248,6 +265,7 @@ int main() {
     test_ip_deny_wins();
     test_unknown_ip_with_api_key_elevation();
     test_allow_ip_service_override_fallback();
+    test_allow_ip_without_service_level_defaults_to_60();
     test_required_access_level_denies_when_below_threshold();
     test_required_access_level_allows_exact_match();
 

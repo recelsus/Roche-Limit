@@ -22,9 +22,15 @@ nginxの`auth_request`を前提の認証専用サーバー。
 - `/`
   疎通確認用
 - `/auth`
-  認証判定用
+  IP / APIキー用の認証判定
+- `/login`
+  ログイン画面 / ログイン処理
+- `/logout`
+  ログアウト処理
+- `/session/auth`
+  Cookie session 用の認証判定
 
-`/` `/auth` どちらもnginx からの内部リクエストを前提としているためSSL/TLS非実装
+これらは nginx からの内部利用を前提とした構成です。
 
 ## Rules
 
@@ -128,3 +134,9 @@ location = /__roche_limit_auth_90 {
 - nginx は `auth_request` の結果だけを見ればよい
 
 詳細なサンプルは [`docs/nginx-sample.md`](./docs/nginx-sample.md) を参照。
+
+`docs/nginx-sample.md` には次も含めています。
+
+- location ごとに required level を切り替える例
+- `/` は IP / APIキー、`/web/` は login/session を使う併用例
+- `regufa.com/karing/` のようなサブパス配下で使う例

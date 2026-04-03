@@ -22,9 +22,15 @@ A dedicated authorisation server designed around nginx `auth_request`.
 - `/`
   Basic reachability check
 - `/auth`
-  Authorisation check
+  IP / API key authorisation
+- `/login`
+  Login page and login submit
+- `/logout`
+  Logout endpoint
+- `/session/auth`
+  Cookie session authorisation
 
-Both `/` and `/auth` assume internal requests from nginx, so SSL/TLS is not implemented here.
+These endpoints are intended to be used behind nginx.
 
 ## Rules
 
@@ -130,3 +136,9 @@ In this example:
 - nginx only needs the `auth_request` result
 
 See [`docs/nginx-sample.md`](./docs/nginx-sample.md) for more detailed examples.
+
+That document also includes:
+
+- per-location required level examples
+- a mixed setup where `/` uses IP/API-key auth and `/web/` uses login/session auth
+- a subpath example such as `regufa.com/karing/`

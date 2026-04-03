@@ -45,6 +45,49 @@ CREATE TABLE IF NOT EXISTS api_keys (
     UNIQUE (key_hash, service_name)
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_credentials (
+    user_id INTEGER PRIMARY KEY,
+    password_hash TEXT NOT NULL,
+    password_updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS user_service_levels (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    service_name TEXT NOT NULL,
+    access_level INTEGER NOT NULL CHECK (access_level >= 0),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    note TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (user_id, service_name)
+);
+
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id INTEGER PRIMARY KEY,
+    session_token_hash TEXT NOT NULL UNIQUE,
+    user_id INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_ip_rules_effect_enabled
     ON ip_rules (effect, enabled);
 
@@ -59,3 +102,15 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash_service_enabled
     ON api_keys (key_hash, service_name, enabled);
+
+CREATE INDEX IF NOT EXISTS idx_users_username_enabled
+    ON users (username, enabled);
+
+CREATE INDEX IF NOT EXISTS idx_user_service_levels_user_service_enabled
+    ON user_service_levels (user_id, service_name, enabled);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash
+    ON user_sessions (session_token_hash);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id
+    ON user_sessions (user_id);

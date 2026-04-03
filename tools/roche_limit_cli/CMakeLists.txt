@@ -1,5 +1,9 @@
 add_executable(roche_limit_cli
+    cli_support.cc
+    ip_command.cc
+    key_command.cc
     main.cc
+    user_command.cc
 )
 
 target_link_libraries(roche_limit_cli

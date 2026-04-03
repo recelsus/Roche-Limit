@@ -4,6 +4,7 @@ add_library(roche_limit_auth_store
     src/rule_repository.cc
     src/schema_bootstrap.cc
     src/sqlite_connection.cc
+    src/user_repository.cc
 )
 
 target_include_directories(roche_limit_auth_store
