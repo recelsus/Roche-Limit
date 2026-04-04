@@ -50,6 +50,12 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
         return;
     }
 
+    if (action == "compact-ids") {
+        repository.compact_user_ids();
+        std::cout << "compacted user ids\n";
+        return;
+    }
+
     if (action == "disable" || action == "remove" || action == "set-password" || action == "set") {
         if (args.size() < 4) {
             fail("missing user id");

@@ -67,6 +67,12 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
         return;
     }
 
+    if (action == "compact-ids") {
+        repository.compact_ip_ids();
+        std::cout << "compacted ip ids\n";
+        return;
+    }
+
     if (args.size() < 4) {
         fail("missing ip value");
     }

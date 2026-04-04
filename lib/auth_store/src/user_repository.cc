@@ -69,6 +69,49 @@ std::optional<std::string> nullable_text(sqlite3_stmt* statement, int column) {
     return text != nullptr ? std::optional<std::string>(text) : std::nullopt;
 }
 
+void exec_sql(sqlite3* db, const char* sql, const char* message) {
+    char* error_message = nullptr;
+    const auto result = sqlite3_exec(db, sql, nullptr, nullptr, &error_message);
+    if (result != SQLITE_OK) {
+        std::string full_message = message;
+        if (error_message != nullptr) {
+            full_message += ": ";
+            full_message += error_message;
+            sqlite3_free(error_message);
+        }
+        throw std::runtime_error(full_message);
+    }
+}
+
+std::vector<std::int64_t> select_ids(sqlite3* db, const char* sql, const char* message) {
+    Statement statement(db, sql);
+    std::vector<std::int64_t> ids;
+    while (true) {
+        const auto step_result = sqlite3_step(statement.get());
+        if (step_result == SQLITE_DONE) {
+            break;
+        }
+        if (step_result != SQLITE_ROW) {
+            throw std::runtime_error(message);
+        }
+        ids.push_back(sqlite3_column_int64(statement.get(), 0));
+    }
+    return ids;
+}
+
+void update_single_id(sqlite3* db,
+                      const char* sql,
+                      std::int64_t old_id,
+                      std::int64_t new_id,
+                      const char* message) {
+    Statement statement(db, sql);
+    bind_int64(statement.get(), 1, new_id);
+    bind_int64(statement.get(), 2, old_id);
+    if (sqlite3_step(statement.get()) != SQLITE_DONE) {
+        throw std::runtime_error(message);
+    }
+}
+
 UserRecord read_user(sqlite3_stmt* statement) {
     const auto* username = reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
     const auto* created_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 4));
@@ -405,6 +448,119 @@ WHERE id = ?1;
     if (sqlite3_step(statement.get()) != SQLITE_DONE) {
         throw std::runtime_error("failed to delete user");
     }
+}
+
+void UserRepository::compact_user_ids() const {
+    static constexpr auto kSelectUserIdsSql = "SELECT id FROM users ORDER BY id ASC;";
+    static constexpr auto kSelectUserServiceLevelIdsSql =
+        "SELECT id FROM user_service_levels ORDER BY id ASC;";
+    static constexpr auto kSelectUserSessionIdsSql =
+        "SELECT id FROM user_sessions ORDER BY id ASC;";
+    static constexpr auto kUpdateUserIdSql = "UPDATE users SET id = ?1 WHERE id = ?2;";
+    static constexpr auto kUpdateCredentialUserIdSql =
+        "UPDATE user_credentials SET user_id = ?1 WHERE user_id = ?2;";
+    static constexpr auto kUpdateServiceLevelUserIdSql =
+        "UPDATE user_service_levels SET user_id = ?1 WHERE user_id = ?2;";
+    static constexpr auto kUpdateSessionUserIdSql =
+        "UPDATE user_sessions SET user_id = ?1 WHERE user_id = ?2;";
+    static constexpr auto kUpdateUserServiceLevelIdSql =
+        "UPDATE user_service_levels SET id = ?1 WHERE id = ?2;";
+    static constexpr auto kUpdateUserSessionIdSql =
+        "UPDATE user_sessions SET id = ?1 WHERE id = ?2;";
+
+    SqliteConnection connection(database_path_);
+    auto* db = connection.handle();
+    exec_sql(db, "PRAGMA foreign_keys = OFF;", "failed to disable foreign keys");
+    exec_sql(db, "BEGIN IMMEDIATE;", "failed to begin transaction");
+    try {
+        const auto user_ids = select_ids(db, kSelectUserIdsSql, "failed to load user ids");
+        for (std::size_t index = 0; index < user_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateCredentialUserIdSql,
+                             user_ids[index],
+                             temp_id,
+                             "failed to move user credential references");
+            update_single_id(db,
+                             kUpdateServiceLevelUserIdSql,
+                             user_ids[index],
+                             temp_id,
+                             "failed to move user service level references");
+            update_single_id(db,
+                             kUpdateSessionUserIdSql,
+                             user_ids[index],
+                             temp_id,
+                             "failed to move user session references");
+            update_single_id(db, kUpdateUserIdSql, user_ids[index], temp_id, "failed to move user id");
+        }
+        for (std::size_t index = 0; index < user_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            const auto new_id = static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateCredentialUserIdSql,
+                             temp_id,
+                             new_id,
+                             "failed to restore user credential references");
+            update_single_id(db,
+                             kUpdateServiceLevelUserIdSql,
+                             temp_id,
+                             new_id,
+                             "failed to restore user service level references");
+            update_single_id(db,
+                             kUpdateSessionUserIdSql,
+                             temp_id,
+                             new_id,
+                             "failed to restore user session references");
+            update_single_id(db, kUpdateUserIdSql, temp_id, new_id, "failed to restore user id");
+        }
+
+        const auto service_level_ids = select_ids(
+            db, kSelectUserServiceLevelIdsSql, "failed to load user service level ids");
+        for (std::size_t index = 0; index < service_level_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateUserServiceLevelIdSql,
+                             service_level_ids[index],
+                             temp_id,
+                             "failed to move user service level id");
+        }
+        for (std::size_t index = 0; index < service_level_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            const auto new_id = static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateUserServiceLevelIdSql,
+                             temp_id,
+                             new_id,
+                             "failed to restore user service level id");
+        }
+
+        const auto session_ids =
+            select_ids(db, kSelectUserSessionIdsSql, "failed to load user session ids");
+        for (std::size_t index = 0; index < session_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateUserSessionIdSql,
+                             session_ids[index],
+                             temp_id,
+                             "failed to move user session id");
+        }
+        for (std::size_t index = 0; index < session_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            const auto new_id = static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateUserSessionIdSql,
+                             temp_id,
+                             new_id,
+                             "failed to restore user session id");
+        }
+
+        exec_sql(db, "COMMIT;", "failed to commit transaction");
+    } catch (...) {
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
+        throw;
+    }
+    exec_sql(db, "PRAGMA foreign_keys = ON;", "failed to re-enable foreign keys");
 }
 
 void UserRepository::upsert_user_credential(std::int64_t user_id, std::string_view password_hash) const {

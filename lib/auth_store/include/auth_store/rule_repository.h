@@ -83,6 +83,7 @@ public:
     std::int64_t insert_ip_rule(const NewIpRule& new_ip_rule) const;
     void update_ip_rule(std::int64_t ip_rule_id, const UpdateIpRule& update_ip_rule) const;
     void delete_ip_rule(std::int64_t ip_rule_id) const;
+    void compact_ip_ids() const;
 
     std::int64_t upsert_ip_service_level(const NewIpServiceLevel& new_ip_service_level) const;
     void delete_ip_service_level(std::int64_t ip_rule_id, std::string_view service_name) const;
@@ -92,6 +93,7 @@ public:
     void disable_api_key(std::int64_t api_key_id) const;
     void clear_api_key_plain(std::int64_t api_key_id) const;
     void delete_api_key(std::int64_t api_key_id) const;
+    void compact_api_key_ids() const;
 
 private:
     std::filesystem::path database_path_;

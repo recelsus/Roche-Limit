@@ -216,6 +216,7 @@ void print_usage() {
               << "  roche_limit_cli ip set <rule-id> [--service <name|*>] [--level <0-90>] [--note TEXT]\n"
               << "  roche_limit_cli ip set <ip-or-cidr> [--service <name|*>] --level <0-90> [--note TEXT]\n"
               << "  roche_limit_cli ip remove <rule-id>\n"
+              << "  roche_limit_cli ip compact-ids\n"
               << "  roche_limit_cli key list\n"
               << "  roche_limit_cli key add <plain-api-key> [--service <name>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
               << "  roche_limit_cli key gen [--service <name>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
@@ -223,13 +224,15 @@ void print_usage() {
               << "  roche_limit_cli key clear-plain <api-key-id>\n"
               << "  roche_limit_cli key disable <api-key-id>\n"
               << "  roche_limit_cli key remove <api-key-id>\n"
+              << "  roche_limit_cli key compact-ids\n"
               << "  roche_limit_cli user list\n"
               << "  roche_limit_cli user add <username> [--password <plain>] [--note TEXT]\n"
               << "  roche_limit_cli user set-password <user-id> [--password <plain>]\n"
               << "  roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable]\n"
               << "  roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT]\n"
               << "  roche_limit_cli user disable <user-id>\n"
-              << "  roche_limit_cli user remove <user-id>\n";
+              << "  roche_limit_cli user remove <user-id>\n"
+              << "  roche_limit_cli user compact-ids\n";
 }
 
 }  // namespace roche_limit::cli

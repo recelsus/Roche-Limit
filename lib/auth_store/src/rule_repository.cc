@@ -8,6 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace roche_limit::auth_store {
 
@@ -149,6 +150,47 @@ void step_done_or_throw(sqlite3_stmt* statement, const std::string& message) {
     if (step_result != SQLITE_DONE) {
         throw std::runtime_error(message);
     }
+}
+
+void exec_sql(sqlite3* db, const char* sql, const char* message) {
+    char* error_message = nullptr;
+    const auto result = sqlite3_exec(db, sql, nullptr, nullptr, &error_message);
+    if (result != SQLITE_OK) {
+        std::string full_message = message;
+        if (error_message != nullptr) {
+            full_message += ": ";
+            full_message += error_message;
+            sqlite3_free(error_message);
+        }
+        throw std::runtime_error(full_message);
+    }
+}
+
+std::vector<std::int64_t> select_ids(sqlite3* db, const char* sql, const char* message) {
+    Statement statement(db, sql);
+    std::vector<std::int64_t> ids;
+    while (true) {
+        const auto step_result = sqlite3_step(statement.get());
+        if (step_result == SQLITE_DONE) {
+            break;
+        }
+        if (step_result != SQLITE_ROW) {
+            throw std::runtime_error(message);
+        }
+        ids.push_back(sqlite3_column_int64(statement.get(), 0));
+    }
+    return ids;
+}
+
+void update_single_id(sqlite3* db,
+                      const char* sql,
+                      std::int64_t old_id,
+                      std::int64_t new_id,
+                      const char* message) {
+    Statement statement(db, sql);
+    bind_int64(statement.get(), 1, new_id);
+    bind_int64(statement.get(), 2, old_id);
+    step_done_or_throw(statement.get(), message);
 }
 
 IpRuleRecord read_ip_rule(sqlite3_stmt* statement) {
@@ -505,6 +547,71 @@ void RuleRepository::delete_ip_rule(std::int64_t ip_rule_id) const {
     }
 }
 
+void RuleRepository::compact_ip_ids() const {
+    static constexpr auto kSelectRuleIdsSql = "SELECT id FROM ip_rules ORDER BY id ASC;";
+    static constexpr auto kSelectServiceLevelIdsSql =
+        "SELECT id FROM ip_service_levels ORDER BY id ASC;";
+    static constexpr auto kUpdateRuleIdSql = "UPDATE ip_rules SET id = ?1 WHERE id = ?2;";
+    static constexpr auto kUpdateServiceRuleIdSql =
+        "UPDATE ip_service_levels SET ip_rule_id = ?1 WHERE ip_rule_id = ?2;";
+    static constexpr auto kUpdateServiceLevelIdSql =
+        "UPDATE ip_service_levels SET id = ?1 WHERE id = ?2;";
+
+    SqliteConnection connection(database_path_);
+    auto* db = connection.handle();
+    exec_sql(db, "PRAGMA foreign_keys = OFF;", "failed to disable foreign keys");
+    exec_sql(db, "BEGIN IMMEDIATE;", "failed to begin transaction");
+    try {
+        const auto rule_ids = select_ids(db, kSelectRuleIdsSql, "failed to load ip rule ids");
+        for (std::size_t index = 0; index < rule_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateServiceRuleIdSql,
+                             rule_ids[index],
+                             temp_id,
+                             "failed to move ip service level references");
+            update_single_id(db, kUpdateRuleIdSql, rule_ids[index], temp_id, "failed to move ip rule id");
+        }
+        for (std::size_t index = 0; index < rule_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            const auto new_id = static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateServiceRuleIdSql,
+                             temp_id,
+                             new_id,
+                             "failed to restore ip service level references");
+            update_single_id(db, kUpdateRuleIdSql, temp_id, new_id, "failed to restore ip rule id");
+        }
+
+        const auto service_level_ids =
+            select_ids(db, kSelectServiceLevelIdsSql, "failed to load ip service level ids");
+        for (std::size_t index = 0; index < service_level_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateServiceLevelIdSql,
+                             service_level_ids[index],
+                             temp_id,
+                             "failed to move ip service level id");
+        }
+        for (std::size_t index = 0; index < service_level_ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            const auto new_id = static_cast<std::int64_t>(index + 1);
+            update_single_id(db,
+                             kUpdateServiceLevelIdSql,
+                             temp_id,
+                             new_id,
+                             "failed to restore ip service level id");
+        }
+
+        exec_sql(db, "COMMIT;", "failed to commit transaction");
+    } catch (...) {
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
+        throw;
+    }
+    exec_sql(db, "PRAGMA foreign_keys = ON;", "failed to re-enable foreign keys");
+}
+
 std::int64_t RuleRepository::upsert_ip_service_level(
     const NewIpServiceLevel& new_ip_service_level) const {
     static constexpr auto kSql = R"SQL(
@@ -657,6 +764,31 @@ void RuleRepository::delete_api_key(std::int64_t api_key_id) const {
     Statement statement(connection.handle(), kSql);
     bind_int64(statement.get(), 1, api_key_id);
     step_done_or_throw(statement.get(), "failed to delete api key");
+}
+
+void RuleRepository::compact_api_key_ids() const {
+    static constexpr auto kSelectIdsSql = "SELECT id FROM api_keys ORDER BY id ASC;";
+    static constexpr auto kUpdateIdSql = "UPDATE api_keys SET id = ?1 WHERE id = ?2;";
+
+    SqliteConnection connection(database_path_);
+    auto* db = connection.handle();
+    exec_sql(db, "BEGIN IMMEDIATE;", "failed to begin transaction");
+    try {
+        const auto ids = select_ids(db, kSelectIdsSql, "failed to load api key ids");
+        for (std::size_t index = 0; index < ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            update_single_id(db, kUpdateIdSql, ids[index], temp_id, "failed to move api key id");
+        }
+        for (std::size_t index = 0; index < ids.size(); ++index) {
+            const auto temp_id = -static_cast<std::int64_t>(index + 1);
+            const auto new_id = static_cast<std::int64_t>(index + 1);
+            update_single_id(db, kUpdateIdSql, temp_id, new_id, "failed to restore api key id");
+        }
+        exec_sql(db, "COMMIT;", "failed to commit transaction");
+    } catch (...) {
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        throw;
+    }
 }
 
 }  // namespace roche_limit::auth_store

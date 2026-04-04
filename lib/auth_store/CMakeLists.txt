@@ -14,7 +14,7 @@ target_include_directories(roche_limit_auth_store
 
 target_link_libraries(roche_limit_auth_store
     PUBLIC
-        SQLite::SQLite3
+        SQLite3::SQLite3
         roche_limit_auth_core
         roche_limit_common
 )

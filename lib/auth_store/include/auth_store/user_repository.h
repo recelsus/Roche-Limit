@@ -52,6 +52,7 @@ public:
     std::int64_t insert_user(const NewUserRecord& new_user_record) const;
     void update_user(std::int64_t user_id, const UpdateUserRecord& update_user_record) const;
     void delete_user(std::int64_t user_id) const;
+    void compact_user_ids() const;
     void upsert_user_credential(std::int64_t user_id, std::string_view password_hash) const;
     std::int64_t upsert_user_service_level(const NewUserServiceLevel& new_user_service_level) const;
 

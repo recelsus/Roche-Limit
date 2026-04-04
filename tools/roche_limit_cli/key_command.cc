@@ -42,6 +42,12 @@ void handle_key_command(const RuleRepository& repository, const std::vector<std:
         return;
     }
 
+    if (action == "compact-ids") {
+        repository.compact_api_key_ids();
+        std::cout << "compacted api key ids\n";
+        return;
+    }
+
     if (action == "disable" || action == "remove" || action == "clear-plain") {
         if (args.size() < 4) {
             fail("missing api key id");
