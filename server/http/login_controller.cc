@@ -131,20 +131,6 @@ void register_login_routes(std::shared_ptr<const roche_limit::auth_core::LoginSe
             callback(make_login_page_response());
         },
         {drogon::Get});
-    drogon::app().registerHandler(
-        "/login.css",
-        [](const drogon::HttpRequestPtr&,
-           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            callback(make_login_css_response());
-        },
-        {drogon::Get});
-    drogon::app().registerHandler(
-        "/login.js",
-        [](const drogon::HttpRequestPtr&,
-           std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            callback(make_login_js_response());
-        },
-        {drogon::Get});
 
     drogon::app().registerHandler(
         "/login",
