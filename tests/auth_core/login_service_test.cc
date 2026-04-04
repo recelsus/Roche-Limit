@@ -35,14 +35,27 @@ using roche_limit::auth_core::UserSessionRecord;
 struct FakeAuthRepository final : AuthRepository {
     std::vector<IpRuleRecord> deny_rules;
     std::vector<IpRuleRecord> allow_rules;
+    std::vector<IpServiceLevelRecord> service_levels;
 
     std::vector<IpRuleRecord> list_ip_rules(IpRuleEffect effect) const override {
         return effect == IpRuleEffect::Deny ? deny_rules : allow_rules;
     }
     std::optional<IpServiceLevelRecord> find_ip_service_level(
-        std::int64_t,
-        std::string_view) const override {
-        return std::nullopt;
+        std::int64_t ip_rule_id,
+        std::string_view service_name) const override {
+        std::optional<IpServiceLevelRecord> fallback;
+        for (const auto& record : service_levels) {
+            if (!record.enabled || record.ip_rule_id != ip_rule_id) {
+                continue;
+            }
+            if (record.service_name == service_name) {
+                return record;
+            }
+            if (record.service_name == "*") {
+                fallback = record;
+            }
+        }
+        return fallback;
     }
     std::optional<ApiKeyRecord> find_api_key(
         std::string_view,
@@ -166,6 +179,21 @@ IpRuleRecord make_deny_rule(std::string value_text) {
     };
 }
 
+IpRuleRecord make_allow_rule(std::int64_t id, std::string value_text) {
+    return IpRuleRecord{
+        .id = id,
+        .value_text = std::move(value_text),
+        .address_family = AddressFamily::IPv4,
+        .rule_type = IpRuleType::Single,
+        .prefix_length = 32,
+        .effect = IpRuleEffect::Allow,
+        .enabled = true,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    };
+}
+
 void test_login_rejects_ip_deny() {
     FakeAuthRepository auth_repository;
     auth_repository.deny_rules = {make_deny_rule("203.0.113.10")};
@@ -259,12 +287,60 @@ void test_session_auth_uses_service_fallback() {
     expect(login_repository.last_seen_updated, "session auth should update last seen");
 }
 
+void test_session_auth_allows_ip_bypass_when_required_level_is_met() {
+    FakeAuthRepository auth_repository;
+    auth_repository.allow_rules = {make_allow_rule(10, "198.51.100.20")};
+    auth_repository.service_levels.push_back(IpServiceLevelRecord{
+        .id = 1,
+        .ip_rule_id = 10,
+        .service_name = "web",
+        .access_level = 90,
+        .enabled = true,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    FakeLoginRepository login_repository;
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.authorize_session(SessionAuthRequest{
+        .client_ip = "198.51.100.20",
+        .service_name = "web",
+        .required_access_level = 60,
+        .session_token = std::nullopt,
+    });
+
+    expect(result.decision == LoginDecision::Allow, "matching ip level should bypass session");
+    expect(result.access_level == 90, "ip bypass should return the ip level");
+    expect(result.reason == "ip_service_override", "ip bypass should expose ip reason");
+    expect(!login_repository.last_seen_updated, "ip bypass should not update session last seen");
+}
+
+void test_session_auth_requires_session_when_ip_level_is_insufficient() {
+    FakeAuthRepository auth_repository;
+    auth_repository.allow_rules = {make_allow_rule(11, "198.51.100.21")};
+    FakeLoginRepository login_repository;
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.authorize_session(SessionAuthRequest{
+        .client_ip = "198.51.100.21",
+        .service_name = "web",
+        .required_access_level = 90,
+        .session_token = std::nullopt,
+    });
+
+    expect(result.decision == LoginDecision::Deny, "insufficient ip level should require session");
+    expect(result.reason == "missing_session", "request should continue into session validation");
+}
+
 }  // namespace
 
 int main() {
     test_login_rejects_ip_deny();
     test_login_allows_valid_credentials();
     test_session_auth_uses_service_fallback();
+    test_session_auth_allows_ip_bypass_when_required_level_is_met();
+    test_session_auth_requires_session_when_ip_level_is_insufficient();
     std::cout << "roche_limit_login_service_tests: ok" << std::endl;
     return 0;
 }

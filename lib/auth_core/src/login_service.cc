@@ -62,6 +62,38 @@ bool is_ip_denied(const AuthRepository& auth_repository, std::string_view client
         .has_value();
 }
 
+struct IpAccessResult {
+    int access_level;
+    std::string reason;
+};
+
+IpAccessResult resolve_ip_access_level(const AuthRepository& auth_repository,
+                                       std::string_view client_ip,
+                                       std::string_view service_name) {
+    const auto allow_match =
+        select_most_specific_ip_match(client_ip, auth_repository.list_ip_rules(IpRuleEffect::Allow));
+    if (!allow_match.has_value()) {
+        return IpAccessResult{
+            .access_level = 30,
+            .reason = "unknown_ip",
+        };
+    }
+
+    if (const auto service_level =
+            auth_repository.find_ip_service_level(allow_match->id, service_name);
+        service_level.has_value()) {
+        return IpAccessResult{
+            .access_level = service_level->access_level,
+            .reason = "ip_service_override",
+        };
+    }
+
+    return IpAccessResult{
+        .access_level = 60,
+        .reason = "ip_allow",
+    };
+}
+
 }  // namespace
 
 LoginService::LoginService(const AuthRepository& auth_repository,
@@ -128,6 +160,18 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
             .reason = "ip_deny",
         };
     }
+
+    const auto ip_access = resolve_ip_access_level(auth_repository_, request.client_ip, request.service_name);
+    const bool ip_satisfies_required_level =
+        !request.required_access_level.has_value() || ip_access.access_level >= *request.required_access_level;
+    if (ip_access.access_level > 0 && ip_satisfies_required_level) {
+        return SessionAuthResult{
+            .decision = LoginDecision::Allow,
+            .access_level = ip_access.access_level,
+            .reason = ip_access.reason,
+        };
+    }
+
     if (!request.session_token.has_value() || request.session_token->empty()) {
         return SessionAuthResult{
             .decision = LoginDecision::Deny,

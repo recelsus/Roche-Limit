@@ -1,13 +1,22 @@
 const form = document.getElementById('login-form');
 const message = document.getElementById('message');
 
+function loginTargetUrl() {
+  return form.getAttribute('action') || window.location.href;
+}
+
+function successRedirectUrl() {
+  const path = window.location.pathname.replace(/\/login\/?$/, '/');
+  return path === '' ? '/' : path;
+}
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   message.textContent = '';
   message.dataset.state = '';
 
   const body = new URLSearchParams(new FormData(form));
-  const response = await fetch(form.action, {
+  const response = await fetch(loginTargetUrl(), {
     method: 'POST',
     body,
     credentials: 'same-origin',
@@ -19,7 +28,7 @@ form.addEventListener('submit', async (event) => {
   if (response.status === 204) {
     message.textContent = 'Login successful. Redirecting...';
     message.dataset.state = 'ok';
-    window.location.href = '/';
+    window.location.href = successRedirectUrl();
     return;
   }
 
