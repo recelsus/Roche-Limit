@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     libc-ares-dev \
     libjsoncpp-dev \
+    libsodium-dev \
     libsqlite3-dev \
     libssl-dev \
     ninja-build \
@@ -67,6 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu \
     libc-ares2 \
     libjsoncpp25 \
+    libsodium23 \
     libsqlite3-0 \
     libssl3 \
     libstdc++6 \
