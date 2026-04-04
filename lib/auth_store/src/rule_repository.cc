@@ -488,12 +488,21 @@ void RuleRepository::update_ip_rule(std::int64_t ip_rule_id, const UpdateIpRule&
 }
 
 void RuleRepository::delete_ip_rule(std::int64_t ip_rule_id) const {
-    static constexpr auto kSql = "DELETE FROM ip_rules WHERE id = ?1;";
+    static constexpr auto kDeleteServiceLevelsSql =
+        "DELETE FROM ip_service_levels WHERE ip_rule_id = ?1;";
+    static constexpr auto kDeleteRuleSql = "DELETE FROM ip_rules WHERE id = ?1;";
 
     SqliteConnection connection(database_path_);
-    Statement statement(connection.handle(), kSql);
-    bind_int64(statement.get(), 1, ip_rule_id);
-    step_done_or_throw(statement.get(), "failed to delete ip rule");
+    {
+        Statement statement(connection.handle(), kDeleteServiceLevelsSql);
+        bind_int64(statement.get(), 1, ip_rule_id);
+        step_done_or_throw(statement.get(), "failed to delete ip service levels");
+    }
+    {
+        Statement statement(connection.handle(), kDeleteRuleSql);
+        bind_int64(statement.get(), 1, ip_rule_id);
+        step_done_or_throw(statement.get(), "failed to delete ip rule");
+    }
 }
 
 std::int64_t RuleRepository::upsert_ip_service_level(
