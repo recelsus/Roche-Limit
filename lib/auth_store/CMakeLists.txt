@@ -12,9 +12,19 @@ target_include_directories(roche_limit_auth_store
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+if(TARGET SQLite3::SQLite3)
+    set(ROCHE_LIMIT_SQLITE_LINK_TARGET SQLite3::SQLite3)
+else()
+    set(ROCHE_LIMIT_SQLITE_LINK_TARGET ${SQLite3_LIBRARIES})
+    target_include_directories(roche_limit_auth_store
+        PUBLIC
+            ${SQLite3_INCLUDE_DIRS}
+    )
+endif()
+
 target_link_libraries(roche_limit_auth_store
     PUBLIC
-        SQLite3::SQLite3
+        ${ROCHE_LIMIT_SQLITE_LINK_TARGET}
         roche_limit_auth_core
         roche_limit_common
 )

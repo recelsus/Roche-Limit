@@ -34,11 +34,12 @@ nginxの`auth_request`を前提の認証専用サーバー。
 
 ## Rules
 
-アクセスレベルは0(ブロック)と1-99を想定, 推奨は(0, 10, 30, 60, 90) デフォルトは30
+アクセスレベルは0(ブロック)と1-99を想定, 推奨は(0, 10, 30, 60, 90)  
+未登録IPは30, 共通allowは60を基準とします
 
 - 共通 `IP deny` は最優先で拒否
-- 共通 `IP allow` はデフォルトのアクセスレベルを付与
-- 未登録のIP はデフォルトのアクセスレベルを付与
+- 共通 `IP allow` は `60` を付与
+- 未登録のIP は `30` を付与
 - サービス別overrideがあればそれを適用
 - APIキーがあればアクセスレベルを再評価
 - 最終的なアクセスレベルをnginxへ返す
@@ -64,7 +65,7 @@ API キーは `Bearer` を優先し、次に `X-API-Key` を参照します。
 
 ## CLI
 
-詳細は [`docs/roche-limit-cli.md`](./docs/roche-limit-cli.md) を参照。
+詳細は [`docs/cli.md`](./docs/cli.md) を参照。
 
 ## Nginx Config Sample
 
@@ -139,4 +140,5 @@ location = /__roche_limit_auth_90 {
 
 - location ごとに required level を切り替える例
 - `/` は IP / APIキー、`/web/` は login/session を使う併用例
+- `karing-web` が `/web/api/` 経由で `karing` を叩く構成例
 - `regufa.com/karing/` のようなサブパス配下で使う例

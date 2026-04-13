@@ -168,6 +168,7 @@ location = /__roche_limit_auth_60 {
   `roche-limit` の login 画面
 - `/web/logout`
   `roche-limit` の logout
+- `app-web` が backend API を使う場合は `/web/api/` などの別経路を frontend 側で用意すると扱いやすい
 
 ```nginx
 upstream roche_limit_auth {
@@ -210,8 +211,6 @@ server {
     location /web/ {
         auth_request /__roche_limit_session_auth;
         error_page 403 = @web_login_redirect;
-
-        rewrite ^/web/(.*)$ /$1 break;
         proxy_pass http://app_web;
 
         proxy_set_header Host $host;
@@ -270,6 +269,9 @@ server {
 - `app-primary` 側は IP / APIキー中心
 - `app-web` 側は Cookie session 中心
 - `roche-limit` は両方の endpoint を提供するだけ
+
+`app-web` が browser から `karing` API を使う場合は、frontend から root `/` を直接叩かず、
+`/web/api/` のような path を `app-web` 側 nginx で backend に proxy する構成が安全です。
 
 ## サブパス `regufa.com/karing/` の例
 

@@ -36,11 +36,11 @@ These endpoints are intended to be used behind nginx.
 
 Access levels assume `0` for blocked and `1-99` for allowed levels.  
 Recommended values are `0`, `10`, `30`, `60`, and `90`.  
-The default level is `30`.
+Unknown IPs default to `30`.
 
 - Shared `IP deny` rules reject first
-- Shared `IP allow` rules grant the default access level
-- Unregistered IP addresses receive the default access level
+- Shared `IP allow` rules grant `60`
+- Unregistered IP addresses receive `30`
 - Service-specific overrides are applied when present
 - API keys may raise the access level
 - The final access level is returned to nginx
@@ -66,7 +66,7 @@ If needed, nginx may also pass `X-Required-Level`, and `/auth` will enforce the 
 
 ## CLI
 
-See [`docs/roche-limit-cli.md`](./docs/roche-limit-cli.md) for details.
+See [`docs/cli.md`](./docs/cli.md) for details.
 
 ## Nginx Config Sample
 
@@ -141,4 +141,5 @@ That document also includes:
 
 - per-location required level examples
 - a mixed setup where `/` uses IP/API-key auth and `/web/` uses login/session auth
+- a `/web/api/` pattern where `karing-web` proxies to `karing` internally
 - a subpath example such as `regufa.com/karing/`
