@@ -72,6 +72,8 @@ struct FakeLoginRepository final : LoginRepository {
     mutable std::int64_t next_session_id{1};
     mutable bool last_seen_updated{false};
     mutable bool session_revoked{false};
+    mutable std::optional<std::int64_t> last_seen_session_id;
+    mutable std::optional<std::string> revoked_session_hash;
 
     std::optional<UserRecord> find_enabled_user_by_username(std::string_view username) const override {
         for (const auto& user : users) {
@@ -144,12 +146,19 @@ struct FakeLoginRepository final : LoginRepository {
         return next_session_id++;
     }
 
-    void update_user_session_last_seen(std::int64_t) const override {
+    void update_user_session_last_seen(std::int64_t session_id) const override {
         last_seen_updated = true;
+        last_seen_session_id = session_id;
     }
 
-    void revoke_user_session(std::string_view) const override {
+    void revoke_user_session(std::string_view session_token_hash) const override {
         session_revoked = true;
+        revoked_session_hash = std::string(session_token_hash);
+        for (auto& session : sessions) {
+            if (session.session_token_hash == session_token_hash) {
+                session.revoked_at = "2099-01-01 00:00:00";
+            }
+        }
     }
 };
 
@@ -240,6 +249,83 @@ void test_login_allows_valid_credentials() {
     expect(result.user_id.has_value() && *result.user_id == 10, "login should return user id");
     expect(result.session_token.has_value() && !result.session_token->empty(),
            "login should create a session token");
+    expect(login_repository.sessions.size() == 1, "login should insert a session");
+    expect(login_repository.sessions.front().user_id == 10, "session should belong to the user");
+}
+
+void test_login_rejects_unknown_user() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.login(LoginRequest{
+        .client_ip = "198.51.100.20",
+        .username = "missing",
+        .password = "secret-pass",
+    });
+
+    expect(result.decision == LoginDecision::Deny, "unknown user should be denied");
+    expect(result.reason == "invalid_credentials", "unknown user should look like bad credentials");
+}
+
+void test_login_rejects_invalid_password() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    login_repository.users.push_back(UserRecord{
+        .id = 10,
+        .username = "alice",
+        .enabled = true,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    login_repository.credentials.push_back(UserCredentialRecord{
+        .user_id = 10,
+        .password_hash = roche_limit::auth_core::hash_password("secret-pass"),
+        .password_updated_at = "",
+        .created_at = "",
+        .updated_at = "",
+    });
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.login(LoginRequest{
+        .client_ip = "198.51.100.20",
+        .username = "alice",
+        .password = "wrong-pass",
+    });
+
+    expect(result.decision == LoginDecision::Deny, "invalid password should be denied");
+    expect(result.reason == "invalid_credentials", "invalid password should look like bad credentials");
+}
+
+void test_login_rejects_disabled_user() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    login_repository.users.push_back(UserRecord{
+        .id = 10,
+        .username = "alice",
+        .enabled = false,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    login_repository.credentials.push_back(UserCredentialRecord{
+        .user_id = 10,
+        .password_hash = roche_limit::auth_core::hash_password("secret-pass"),
+        .password_updated_at = "",
+        .created_at = "",
+        .updated_at = "",
+    });
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.login(LoginRequest{
+        .client_ip = "198.51.100.20",
+        .username = "alice",
+        .password = "secret-pass",
+    });
+
+    expect(result.decision == LoginDecision::Deny, "disabled user should be denied");
+    expect(result.reason == "invalid_credentials", "disabled user should look like bad credentials");
 }
 
 void test_session_auth_uses_service_fallback() {
@@ -257,7 +343,7 @@ void test_session_auth_uses_service_fallback() {
         .id = 1,
         .user_id = 20,
         .service_name = "*",
-        .access_level = 30,
+        .access_level = 60,
         .enabled = true,
         .note = std::nullopt,
         .created_at = "",
@@ -278,13 +364,106 @@ void test_session_auth_uses_service_fallback() {
     const auto result = service.authorize_session(SessionAuthRequest{
         .client_ip = "198.51.100.20",
         .service_name = "secondary",
-        .required_access_level = 30,
+        .required_access_level = 60,
         .session_token = std::string("session-token"),
     });
 
     expect(result.decision == LoginDecision::Allow, "session auth should allow fallback level");
-    expect(result.access_level == 30, "fallback service level should be applied");
-    expect(login_repository.last_seen_updated, "session auth should update last seen");
+    expect(result.access_level == 60, "fallback service level should be applied");
+    expect(login_repository.last_seen_updated,
+           "session auth using wildcard fallback should update last seen");
+    expect(login_repository.last_seen_session_id.has_value() &&
+               *login_repository.last_seen_session_id == 1,
+           "session auth should update the matched session");
+}
+
+void test_session_auth_prefers_exact_service_over_fallback() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    login_repository.users.push_back(UserRecord{
+        .id = 21,
+        .username = "carol",
+        .enabled = true,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    login_repository.service_levels.push_back(UserServiceLevelRecord{
+        .id = 1,
+        .user_id = 21,
+        .service_name = "*",
+        .access_level = 30,
+        .enabled = true,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    login_repository.service_levels.push_back(UserServiceLevelRecord{
+        .id = 2,
+        .user_id = 21,
+        .service_name = "web",
+        .access_level = 60,
+        .enabled = true,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    login_repository.sessions.push_back(UserSessionRecord{
+        .id = 1,
+        .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+        .user_id = 21,
+        .expires_at = "2099-01-01 00:00:00",
+        .last_seen_at = "",
+        .revoked_at = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.authorize_session(SessionAuthRequest{
+        .client_ip = "198.51.100.20",
+        .service_name = "web",
+        .required_access_level = 60,
+        .session_token = std::string("session-token"),
+    });
+
+    expect(result.decision == LoginDecision::Allow, "exact service level should allow");
+    expect(result.access_level == 60, "exact service level should override wildcard");
+}
+
+void test_session_auth_denies_when_no_matching_service_level_exists() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    login_repository.users.push_back(UserRecord{
+        .id = 22,
+        .username = "dave",
+        .enabled = true,
+        .note = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    login_repository.sessions.push_back(UserSessionRecord{
+        .id = 1,
+        .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+        .user_id = 22,
+        .expires_at = "2099-01-01 00:00:00",
+        .last_seen_at = "",
+        .revoked_at = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.authorize_session(SessionAuthRequest{
+        .client_ip = "198.51.100.20",
+        .service_name = "web",
+        .required_access_level = 60,
+        .session_token = std::string("session-token"),
+    });
+
+    expect(result.decision == LoginDecision::Deny, "missing service level should deny");
+    expect(result.reason == "insufficient_level", "missing service level should map to insufficient level");
+    expect(!login_repository.last_seen_updated, "deny should not update last seen");
 }
 
 void test_session_auth_allows_ip_bypass_when_required_level_is_met() {
@@ -333,14 +512,71 @@ void test_session_auth_requires_session_when_ip_level_is_insufficient() {
     expect(result.reason == "missing_session", "request should continue into session validation");
 }
 
+void test_session_auth_rejects_invalid_session() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.authorize_session(SessionAuthRequest{
+        .client_ip = "198.51.100.20",
+        .service_name = "web",
+        .required_access_level = 60,
+        .session_token = std::string("missing-session"),
+    });
+
+    expect(result.decision == LoginDecision::Deny, "unknown session should be denied");
+    expect(result.reason == "invalid_session", "unknown session should report invalid_session");
+}
+
+void test_logout_revokes_existing_session() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    login_repository.sessions.push_back(UserSessionRecord{
+        .id = 1,
+        .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+        .user_id = 22,
+        .expires_at = "2099-01-01 00:00:00",
+        .last_seen_at = "",
+        .revoked_at = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    LoginService service(auth_repository, login_repository);
+
+    service.logout("session-token");
+
+    expect(login_repository.session_revoked, "logout should revoke the session");
+    expect(login_repository.revoked_session_hash.has_value() &&
+               *login_repository.revoked_session_hash ==
+                   roche_limit::common::sha256_hex("session-token"),
+           "logout should revoke by hashed token");
+
+    const auto result = service.authorize_session(SessionAuthRequest{
+        .client_ip = "198.51.100.20",
+        .service_name = "web",
+        .required_access_level = 60,
+        .session_token = std::string("session-token"),
+    });
+
+    expect(result.decision == LoginDecision::Deny, "revoked session should no longer authorize");
+    expect(result.reason == "invalid_session", "revoked session should be treated as invalid");
+}
+
 }  // namespace
 
 int main() {
     test_login_rejects_ip_deny();
     test_login_allows_valid_credentials();
+    test_login_rejects_unknown_user();
+    test_login_rejects_invalid_password();
+    test_login_rejects_disabled_user();
     test_session_auth_uses_service_fallback();
+    test_session_auth_prefers_exact_service_over_fallback();
+    test_session_auth_denies_when_no_matching_service_level_exists();
     test_session_auth_allows_ip_bypass_when_required_level_is_met();
     test_session_auth_requires_session_when_ip_level_is_insufficient();
+    test_session_auth_rejects_invalid_session();
+    test_logout_revokes_existing_session();
     std::cout << "roche_limit_login_service_tests: ok" << std::endl;
     return 0;
 }
