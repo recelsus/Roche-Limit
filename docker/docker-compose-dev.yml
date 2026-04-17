@@ -6,6 +6,9 @@ services:
     image: roche-limit:dev
     container_name: roche-limit-dev
     restart: unless-stopped
+    # Example:
+    # environment:
+    #   ROCHE_LIMIT_TRUSTED_PROXIES: "127.0.0.1,::1,172.18.0.0/16"
 
     # Test only.
     # In production, remove `ports` and place this container on the same

@@ -1,9 +1,9 @@
 #include "request_extractor.h"
+#include "client_ip_resolver.h"
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
-#include <string>
 
 namespace roche_limit::server::http {
 
@@ -34,25 +34,12 @@ std::string trim(std::string value) {
     return value;
 }
 
-std::string extract_forwarded_ip(const drogon::HttpRequestPtr& request) {
-    const auto forwarded_for = request->getHeader("X-Forwarded-For");
-    if (forwarded_for.empty()) {
-        return {};
-    }
-
-    const auto separator = forwarded_for.find(',');
-    return trim(forwarded_for.substr(0, separator));
-}
-
 std::string extract_client_ip(const drogon::HttpRequestPtr& request) {
-    auto client_ip = trim(request->getHeader("X-Real-IP"));
-    if (client_ip.empty()) {
-        client_ip = extract_forwarded_ip(request);
-    }
-    if (client_ip.empty()) {
-        client_ip = request->peerAddr().toIp();
-    }
-    return client_ip;
+    static const auto trusted_proxy_rules = load_trusted_proxy_rules_from_env();
+    return resolve_client_ip(request->peerAddr().toIp(),
+                             request->getHeader("X-Real-IP"),
+                             request->getHeader("X-Forwarded-For"),
+                             trusted_proxy_rules);
 }
 
 std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request) {

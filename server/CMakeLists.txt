@@ -4,6 +4,7 @@ add_executable(roche-limit
     main.cc
     config/app_config.cc
     http/auth_controller.cc
+    http/client_ip_resolver.cc
     http/login_asset_loader.cc
     http/login_controller.cc
     http/login_page_renderer.cc
