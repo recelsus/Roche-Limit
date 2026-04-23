@@ -3,14 +3,19 @@ services:
     image: ghcr.io/recelsus/roche-limit:latest
     container_name: roche-limit
     restart: unless-stopped
-    # Example:
-    # environment:
-    #   ROCHE_LIMIT_TRUSTED_PROXIES: "127.0.0.1,::1,172.18.0.0/16"
-    #   ROCHE_LIMIT_SESSION_COOKIE_NAME: "roche_limit_session"
-    #   ROCHE_LIMIT_SESSION_COOKIE_PATH: "/"
-    #   ROCHE_LIMIT_SESSION_COOKIE_SAMESITE: "Lax"
-    #   ROCHE_LIMIT_SESSION_COOKIE_SECURE: "1"
-    #   ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE: "604800"
+    environment:
+      # Required. Replace with a long random secret before use.
+      ROCHE_LIMIT_API_KEY_PEPPER: "change-me-long-random-secret"
+      # ROCHE_LIMIT_TRUSTED_PROXIES: "127.0.0.1,::1,172.18.0.0/16"
+      # ROCHE_LIMIT_UNKNOWN_IP_LEVEL: "10"
+      # ROCHE_LIMIT_AUDIT_AUTH_ALLOW: "0"
+      # ROCHE_LIMIT_AUDIT_RETENTION_DAYS: "90"
+      # ROCHE_LIMIT_AUDIT_MAX_ROWS: "10000"
+      # ROCHE_LIMIT_SESSION_COOKIE_NAME: "roche_limit_session"
+      # ROCHE_LIMIT_SESSION_COOKIE_PATH: "/"
+      # ROCHE_LIMIT_SESSION_COOKIE_SAMESITE: "Lax"
+      # ROCHE_LIMIT_SESSION_COOKIE_SECURE: "1"
+      # ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE: "604800"
 
     # Test only.
     # In production, remove `ports` and place this container on the same

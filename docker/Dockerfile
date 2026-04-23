@@ -87,6 +87,8 @@ COPY --from=builder /src/build/tools/roche_limit_cli/roche_limit_cli /usr/local/
 COPY schema/init.sql /app/schema/init.sql
 COPY schema/migrations /app/schema/migrations
 COPY server/assets /app/assets
+COPY LICENSE /app/LICENSE
+COPY THIRD_PARTY_NOTICES.md /app/THIRD_PARTY_NOTICES.md
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/roche_limit_cli
