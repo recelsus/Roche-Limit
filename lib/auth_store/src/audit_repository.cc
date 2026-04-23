@@ -1,9 +1,11 @@
 #include "auth_store/audit_repository.h"
 
 #include "auth_store/sqlite_connection.h"
+#include "common/debug_log.h"
 #include "sqlite_statement.h"
 
 #include <cstdlib>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 
@@ -36,6 +38,13 @@ AuditRepository::AuditRepository(std::filesystem::path database_path)
     : database_path_(std::move(database_path)) {}
 
 void AuditRepository::insert_event(const NewAuditEvent &event) const {
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[audit] insert begin this=" << static_cast<const void *>(this)
+              << " db=" << database_path_.string()
+              << " event_type=" << event.event_type
+              << " actor_type=" << event.actor_type
+              << " result=" << event.result << std::endl;
+  }
   static constexpr auto kSql = R"SQL(
 INSERT INTO audit_events (
     event_type,
@@ -53,8 +62,17 @@ INSERT INTO audit_events (
 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12);
 )SQL";
 
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[audit] opening sqlite connection" << std::endl;
+  }
   SqliteConnection connection(database_path_);
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[audit] preparing statement" << std::endl;
+  }
   Statement statement(connection.handle(), kSql);
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[audit] binding values" << std::endl;
+  }
   bind_text(statement.get(), 1, event.event_type);
   bind_text(statement.get(), 2, event.actor_type);
   bind_nullable_text(statement.get(), 3, event.actor_id);
@@ -67,7 +85,13 @@ INSERT INTO audit_events (
   bind_text(statement.get(), 10, event.result);
   bind_nullable_text(statement.get(), 11, event.reason);
   bind_nullable_text(statement.get(), 12, event.metadata_json);
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[audit] stepping insert" << std::endl;
+  }
   step_done_or_throw(statement.get(), "failed to insert audit event");
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[audit] insert done" << std::endl;
+  }
 }
 
 void AuditRepository::cleanup(int retention_days, int max_rows) const {
