@@ -12,5 +12,7 @@ struct BootstrapResult {
 };
 
 BootstrapResult bootstrap_sqlite_schema(const std::filesystem::path& executable_path);
+BootstrapResult bootstrap_sqlite_schema_at(const std::filesystem::path& database_path,
+                                           const std::filesystem::path& executable_path);
 
 }  // namespace roche_limit::auth_store

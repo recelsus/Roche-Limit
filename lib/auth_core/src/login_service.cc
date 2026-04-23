@@ -1,5 +1,6 @@
 #include "auth_core/login_service.h"
 
+#include "auth_core/access_level.h"
 #include "auth_core/ip_rule_matcher.h"
 #include "auth_core/password_hasher.h"
 #include "common/hash_util.h"
@@ -55,6 +56,10 @@ std::string generate_session_token() {
 
 std::string session_token_hash(std::string_view session_token) {
     return roche_limit::common::sha256_hex(session_token);
+}
+
+bool session_is_expired(std::string_view expires_at) {
+    return expires_at.empty() || expires_at <= format_timestamp(std::chrono::system_clock::now());
 }
 
 bool is_ip_denied(const AuthRepository& auth_repository, std::string_view client_ip) {
@@ -162,9 +167,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
     }
 
     const auto ip_access = resolve_ip_access_level(auth_repository_, request.client_ip, request.service_name);
-    const bool ip_satisfies_required_level =
-        !request.required_access_level.has_value() || ip_access.access_level >= *request.required_access_level;
-    if (ip_access.access_level > 0 && ip_satisfies_required_level) {
+    if (access_level_satisfies(ip_access.access_level, request.required_access_level)) {
         return SessionAuthResult{
             .decision = LoginDecision::Allow,
             .access_level = ip_access.access_level,
@@ -189,6 +192,15 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
             .reason = "invalid_session",
         };
     }
+    if (session_is_expired(session->expires_at)) {
+        login_repository_.revoke_user_session(session->session_token_hash);
+        return SessionAuthResult{
+            .decision = LoginDecision::Deny,
+            .access_level = 0,
+            .reason = "expired_session",
+            .session_id = session->id,
+        };
+    }
 
     const auto user = login_repository_.find_enabled_user_by_id(session->user_id);
     if (!user.has_value()) {
@@ -207,8 +219,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
         access_level = service_level->access_level;
     }
 
-    if (request.required_access_level.has_value() &&
-        access_level < *request.required_access_level) {
+    if (!access_level_satisfies(access_level, request.required_access_level)) {
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
@@ -220,10 +231,11 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
 
     login_repository_.update_user_session_last_seen(session->id);
 
+    const bool session_level_allowed = access_level_satisfies(access_level, std::nullopt);
     return SessionAuthResult{
-        .decision = access_level > 0 ? LoginDecision::Allow : LoginDecision::Deny,
-        .access_level = access_level > 0 ? access_level : 0,
-        .reason = access_level > 0 ? "session_allow" : "insufficient_level",
+        .decision = session_level_allowed ? LoginDecision::Allow : LoginDecision::Deny,
+        .access_level = session_level_allowed ? access_level : 0,
+        .reason = session_level_allowed ? "session_allow" : "insufficient_level",
         .user_id = user->id,
         .session_id = session->id,
     };

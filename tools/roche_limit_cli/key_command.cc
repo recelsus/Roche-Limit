@@ -13,7 +13,10 @@ using roche_limit::auth_store::UpdateApiKeyRecord;
 
 namespace {
 
-constexpr bool kShowPlainApiKeys = true;
+std::string api_key_prefix(std::string_view plain_api_key) {
+    constexpr std::size_t kPrefixLength = 8;
+    return std::string(plain_api_key.substr(0, std::min(kPrefixLength, plain_api_key.size())));
+}
 
 }  // namespace
 
@@ -29,8 +32,7 @@ void handle_key_command(const RuleRepository& repository, const std::vector<std:
         for (const auto& record : records) {
             rows.push_back({
                 std::to_string(record.id),
-                kShowPlainApiKeys ? (record.key_plain.has_value() ? *record.key_plain : "-")
-                                  : "[hidden]",
+                record.key_prefix.has_value() ? *record.key_prefix : "-",
                 record.key_hash,
                 printable_service_name(record.service_name),
                 std::to_string(record.access_level),
@@ -38,17 +40,18 @@ void handle_key_command(const RuleRepository& repository, const std::vector<std:
                 record.note.has_value() ? *record.note : "-",
             });
         }
-        print_table({"id", "plain", "hash", "service", "level", "status", "note"}, rows);
+        print_table({"id", "prefix", "hash", "service", "level", "status", "note"}, rows);
         return;
     }
 
     if (action == "compact-ids") {
+        require_experimental_cli("key compact-ids");
         repository.compact_api_key_ids();
         std::cout << "compacted api key ids\n";
         return;
     }
 
-    if (action == "disable" || action == "remove" || action == "clear-plain") {
+    if (action == "disable" || action == "remove") {
         if (args.size() < 4) {
             fail("missing api key id");
         }
@@ -64,9 +67,6 @@ void handle_key_command(const RuleRepository& repository, const std::vector<std:
             std::cout << "deleted api key\n";
             return;
         }
-        repository.clear_api_key_plain(api_key_id);
-        std::cout << "cleared api key plaintext\n";
-        return;
     }
 
     const auto options = parse_options(args, action == "gen" ? 3 : 4);
@@ -77,9 +77,8 @@ void handle_key_command(const RuleRepository& repository, const std::vector<std:
         const auto plain_api_key = args[3];
         const auto level_option = optional_option(options, "--level");
         const auto api_key_id = repository.insert_api_key(NewApiKeyRecord{
-            .key_plain = plain_api_key,
             .key_hash = roche_limit::auth_core::hash_api_key(plain_api_key),
-            .key_prefix = std::nullopt,
+            .key_prefix = api_key_prefix(plain_api_key),
             .service_name = parse_service_name_option(options, "--service"),
             .access_level = level_option.has_value() ? parse_int(*level_option, "--level") : 30,
             .expires_at = optional_option(options, "--expires-at"),
@@ -93,9 +92,8 @@ void handle_key_command(const RuleRepository& repository, const std::vector<std:
         const auto plain_api_key = generate_api_key();
         const auto level_option = optional_option(options, "--level");
         const auto api_key_id = repository.insert_api_key(NewApiKeyRecord{
-            .key_plain = plain_api_key,
             .key_hash = roche_limit::auth_core::hash_api_key(plain_api_key),
-            .key_prefix = std::nullopt,
+            .key_prefix = api_key_prefix(plain_api_key),
             .service_name = parse_service_name_option(options, "--service"),
             .access_level = level_option.has_value() ? parse_int(*level_option, "--level") : 30,
             .expires_at = optional_option(options, "--expires-at"),

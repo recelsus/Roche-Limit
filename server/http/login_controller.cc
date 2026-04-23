@@ -5,6 +5,7 @@
 #include "common/debug_log.h"
 #include "login_page_renderer.h"
 #include "request_extractor.h"
+#include "request_observability.h"
 
 #include <drogon/drogon.h>
 
@@ -26,6 +27,10 @@ drogon::HttpResponsePtr make_basic_response(drogon::HttpStatusCode status_code) 
     return response;
 }
 
+void add_request_id(const drogon::HttpResponsePtr& response, std::string_view request_id) {
+    response->addHeader("X-Request-Id", std::string(request_id));
+}
+
 void add_session_cookie(const drogon::HttpResponsePtr& response, std::string_view session_token) {
     response->addHeader("Set-Cookie",
                         std::string(kSessionCookieName) + "=" + std::string(session_token) +
@@ -41,6 +46,7 @@ void clear_session_cookie(const drogon::HttpResponsePtr& response) {
 void handle_login(const std::shared_ptr<const roche_limit::auth_core::LoginService>& login_service,
                   const drogon::HttpRequestPtr& request,
                   std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    const auto request_id = next_request_id();
     try {
         const auto login_request = build_login_request(request);
         const auto login_result = login_service->login(login_request);
@@ -48,16 +54,23 @@ void handle_login(const std::shared_ptr<const roche_limit::auth_core::LoginServi
         if (login_result.decision == roche_limit::auth_core::LoginDecision::Allow &&
             login_result.session_token.has_value()) {
             auto response = make_basic_response(drogon::k204NoContent);
+            add_request_id(response, request_id);
             add_session_cookie(response, *login_result.session_token);
+            record_auth_request("login", "allow", login_result.reason);
             callback(response);
             return;
         }
 
         auto response = make_basic_response(drogon::k401Unauthorized);
+        add_request_id(response, request_id);
+        record_auth_request("login", "deny", login_result.reason);
         callback(response);
     } catch (const std::exception& ex) {
-        LOG_ERROR << "login handler failed: " << ex.what();
-        callback(make_basic_response(drogon::k500InternalServerError));
+        LOG_ERROR << "login handler failed request_id=" << request_id << ": " << ex.what();
+        auto response = make_basic_response(drogon::k500InternalServerError);
+        add_request_id(response, request_id);
+        record_auth_request("login", "error", "internal_error");
+        callback(response);
     }
 }
 
@@ -65,13 +78,16 @@ void handle_session_auth(
     const std::shared_ptr<const roche_limit::auth_core::LoginService>& login_service,
     const drogon::HttpRequestPtr& request,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    const auto request_id = next_request_id();
     try {
         const auto auth_request = build_session_auth_request(request);
         if (auth_request.service_name.empty()) {
             auto response = make_basic_response(drogon::k403Forbidden);
+            add_request_id(response, request_id);
             response->addHeader("X-Auth-Level", "0");
             response->addHeader("X-Auth-Reason", "missing_service");
             response->addHeader("X-Auth-Service", "*");
+            record_auth_request("session_auth", "deny", "missing_service");
             callback(response);
             return;
         }
@@ -81,6 +97,7 @@ void handle_session_auth(
             auth_result.decision == roche_limit::auth_core::LoginDecision::Allow
                 ? drogon::k200OK
                 : drogon::k403Forbidden);
+        add_request_id(response, request_id);
         response->addHeader("X-Auth-Level", std::to_string(auth_result.access_level));
         response->addHeader("X-Auth-Reason", auth_result.reason);
         response->addHeader("X-Auth-Service", auth_request.service_name);
@@ -90,27 +107,40 @@ void handle_session_auth(
         if (auth_result.session_id.has_value()) {
             response->addHeader("X-Auth-Session-Id", std::to_string(*auth_result.session_id));
         }
+        record_auth_request(
+            "session_auth",
+            auth_result.decision == roche_limit::auth_core::LoginDecision::Allow ? "allow" : "deny",
+            auth_result.reason);
         callback(response);
     } catch (const std::exception& ex) {
-        LOG_ERROR << "session auth handler failed: " << ex.what();
-        callback(make_basic_response(drogon::k500InternalServerError));
+        LOG_ERROR << "session auth handler failed request_id=" << request_id << ": " << ex.what();
+        auto response = make_basic_response(drogon::k500InternalServerError);
+        add_request_id(response, request_id);
+        record_auth_request("session_auth", "error", "internal_error");
+        callback(response);
     }
 }
 
 void handle_logout(const std::shared_ptr<const roche_limit::auth_core::LoginService>& login_service,
                    const drogon::HttpRequestPtr& request,
                    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+    const auto request_id = next_request_id();
     try {
         const auto session_request = build_session_auth_request(request);
         if (session_request.session_token.has_value()) {
             login_service->logout(*session_request.session_token);
         }
         auto response = make_basic_response(drogon::k204NoContent);
+        add_request_id(response, request_id);
         clear_session_cookie(response);
+        record_auth_request("logout", "allow", "logout");
         callback(response);
     } catch (const std::exception& ex) {
-        LOG_ERROR << "logout handler failed: " << ex.what();
-        callback(make_basic_response(drogon::k500InternalServerError));
+        LOG_ERROR << "logout handler failed request_id=" << request_id << ": " << ex.what();
+        auto response = make_basic_response(drogon::k500InternalServerError);
+        add_request_id(response, request_id);
+        record_auth_request("logout", "error", "internal_error");
+        callback(response);
     }
 }
 
@@ -121,14 +151,22 @@ void register_login_routes(std::shared_ptr<const roche_limit::auth_core::LoginSe
         "/login",
         [](const drogon::HttpRequestPtr&,
            std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            callback(make_login_page_response());
+            const auto request_id = next_request_id();
+            auto response = make_login_page_response();
+            add_request_id(response, request_id);
+            record_auth_request("login_page", "allow", "page");
+            callback(response);
         },
         {drogon::Get});
     drogon::app().registerHandler(
         "/login/",
         [](const drogon::HttpRequestPtr&,
            std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            callback(make_login_page_response());
+            const auto request_id = next_request_id();
+            auto response = make_login_page_response();
+            add_request_id(response, request_id);
+            record_auth_request("login_page", "allow", "page");
+            callback(response);
         },
         {drogon::Get});
 

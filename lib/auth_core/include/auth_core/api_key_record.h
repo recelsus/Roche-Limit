@@ -8,7 +8,6 @@ namespace roche_limit::auth_core {
 
 struct ApiKeyRecord {
     std::int64_t id;
-    std::optional<std::string> key_plain;
     std::string key_hash;
     std::optional<std::string> key_prefix;
     std::optional<std::string> service_name;

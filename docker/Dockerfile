@@ -78,13 +78,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN groupadd --system --gid 10001 roche-limit \
     && useradd --system --uid 10001 --gid roche-limit --home /app roche-limit \
-    && mkdir -p /app/schema /app/assets /var/lib/roche-limit \
+    && mkdir -p /app/schema/migrations /app/assets /var/lib/roche-limit \
     && chown -R roche-limit:roche-limit /app /var/lib/roche-limit
 
 COPY --from=drogon-builder /opt/drogon /opt/drogon
 COPY --from=builder /src/build/server/roche-limit /app/roche-limit
 COPY --from=builder /src/build/tools/roche_limit_cli/roche_limit_cli /usr/local/bin/roche_limit_cli
 COPY schema/init.sql /app/schema/init.sql
+COPY schema/migrations /app/schema/migrations
 COPY server/assets /app/assets
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 

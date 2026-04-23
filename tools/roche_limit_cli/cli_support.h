@@ -34,6 +34,8 @@ std::string to_string(roche_limit::auth_core::IpRuleEffect value);
 std::string printable_service_name(const std::optional<std::string>& value);
 std::string printable_service_name(std::string_view value);
 std::string bool_label(bool value);
+bool experimental_cli_enabled();
+void require_experimental_cli(std::string_view command_name);
 
 bool looks_like_ip_or_cidr(std::string_view value);
 std::optional<std::string> parse_service_name_option(const OptionsMap& options,

@@ -2,6 +2,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SODIUM REQUIRED IMPORTED_TARGET libsodium)
 
 add_library(roche_limit_auth_core
+    src/access_level.cc
     src/api_key_hasher.cc
     src/auth_service.cc
     src/ip_rule_matcher.cc

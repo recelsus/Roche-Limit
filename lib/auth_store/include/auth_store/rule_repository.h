@@ -40,7 +40,6 @@ struct UpdateIpRule {
 };
 
 struct NewApiKeyRecord {
-    std::optional<std::string> key_plain;
     std::string key_hash;
     std::optional<std::string> key_prefix;
     std::optional<std::string> service_name;
@@ -91,7 +90,6 @@ public:
     std::int64_t insert_api_key(const NewApiKeyRecord& new_api_key_record) const;
     void update_api_key(std::int64_t api_key_id, const UpdateApiKeyRecord& update_api_key_record) const;
     void disable_api_key(std::int64_t api_key_id) const;
-    void clear_api_key_plain(std::int64_t api_key_id) const;
     void delete_api_key(std::int64_t api_key_id) const;
     void compact_api_key_ids() const;
 

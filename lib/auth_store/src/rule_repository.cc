@@ -236,20 +236,19 @@ IpServiceLevelRecord read_ip_service_level(sqlite3_stmt* statement) {
 }
 
 ApiKeyRecord read_api_key(sqlite3_stmt* statement) {
-    const auto* key_hash = reinterpret_cast<const char*>(sqlite3_column_text(statement, 2));
-    const auto* created_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 9));
-    const auto* updated_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 10));
+    const auto* key_hash = reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
+    const auto* created_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 8));
+    const auto* updated_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 9));
 
     return ApiKeyRecord{
         .id = sqlite3_column_int64(statement, 0),
-        .key_plain = nullable_text(statement, 1),
         .key_hash = key_hash != nullptr ? key_hash : "",
-        .key_prefix = nullable_text(statement, 3),
-        .service_name = nullable_text(statement, 4),
-        .access_level = sqlite3_column_int(statement, 5),
-        .enabled = sqlite3_column_int(statement, 6) != 0,
-        .expires_at = nullable_text(statement, 7),
-        .note = nullable_text(statement, 8),
+        .key_prefix = nullable_text(statement, 2),
+        .service_name = nullable_text(statement, 3),
+        .access_level = sqlite3_column_int(statement, 4),
+        .enabled = sqlite3_column_int(statement, 5) != 0,
+        .expires_at = nullable_text(statement, 6),
+        .note = nullable_text(statement, 7),
         .created_at = created_at != nullptr ? created_at : "",
         .updated_at = updated_at != nullptr ? updated_at : "",
     };
@@ -330,7 +329,7 @@ std::optional<ApiKeyRecord> RuleRepository::find_api_key(
         std::cerr << "[auth_store] find_api_key begin service=" << service_name << std::endl;
     }
     static constexpr auto kSql = R"SQL(
-SELECT id, key_plain, key_hash, key_prefix, service_name, access_level, enabled, expires_at, note, created_at, updated_at
+SELECT id, key_hash, key_prefix, service_name, access_level, enabled, expires_at, note, created_at, updated_at
 FROM api_keys
 WHERE key_hash = ?1
   AND enabled = 1
@@ -420,7 +419,7 @@ ORDER BY service_name ASC, ip_rule_id ASC, id ASC;
 
 std::vector<ApiKeyRecord> RuleRepository::list_api_keys() const {
     static constexpr auto kSql = R"SQL(
-SELECT id, key_plain, key_hash, key_prefix, service_name, access_level, enabled, expires_at, note, created_at, updated_at
+SELECT id, key_hash, key_prefix, service_name, access_level, enabled, expires_at, note, created_at, updated_at
 FROM api_keys
 ORDER BY key_hash ASC, service_name ASC, id ASC;
 )SQL";
@@ -661,27 +660,25 @@ void RuleRepository::delete_ip_service_level(std::int64_t ip_rule_id,
 std::int64_t RuleRepository::insert_api_key(const NewApiKeyRecord& new_api_key_record) const {
     static constexpr auto kSql = R"SQL(
 INSERT INTO api_keys (
-    key_plain,
     key_hash,
     key_prefix,
     service_name,
     access_level,
     expires_at,
     note
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7);
+) VALUES (?1, ?2, ?3, ?4, ?5, ?6);
 )SQL";
 
     SqliteConnection connection(database_path_);
     Statement statement(connection.handle(), kSql);
-    bind_nullable_text(statement.get(), 1, new_api_key_record.key_plain);
-    bind_text(statement.get(), 2, new_api_key_record.key_hash);
-    bind_nullable_text(statement.get(), 3, new_api_key_record.key_prefix);
-    bind_nullable_text(statement.get(), 4, new_api_key_record.service_name);
-    if (sqlite3_bind_int(statement.get(), 5, new_api_key_record.access_level) != SQLITE_OK) {
+    bind_text(statement.get(), 1, new_api_key_record.key_hash);
+    bind_nullable_text(statement.get(), 2, new_api_key_record.key_prefix);
+    bind_nullable_text(statement.get(), 3, new_api_key_record.service_name);
+    if (sqlite3_bind_int(statement.get(), 4, new_api_key_record.access_level) != SQLITE_OK) {
         throw std::runtime_error("failed to bind sqlite integer parameter");
     }
-    bind_nullable_text(statement.get(), 6, new_api_key_record.expires_at);
-    bind_nullable_text(statement.get(), 7, new_api_key_record.note);
+    bind_nullable_text(statement.get(), 5, new_api_key_record.expires_at);
+    bind_nullable_text(statement.get(), 6, new_api_key_record.note);
     step_done_or_throw(statement.get(), "failed to insert api key");
 
     return sqlite3_last_insert_rowid(connection.handle());
@@ -745,16 +742,6 @@ void RuleRepository::disable_api_key(std::int64_t api_key_id) const {
     Statement statement(connection.handle(), kSql);
     bind_int64(statement.get(), 1, api_key_id);
     step_done_or_throw(statement.get(), "failed to disable api key");
-}
-
-void RuleRepository::clear_api_key_plain(std::int64_t api_key_id) const {
-    static constexpr auto kSql =
-        "UPDATE api_keys SET key_plain = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?1;";
-
-    SqliteConnection connection(database_path_);
-    Statement statement(connection.handle(), kSql);
-    bind_int64(statement.get(), 1, api_key_id);
-    step_done_or_throw(statement.get(), "failed to clear api key plaintext");
 }
 
 void RuleRepository::delete_api_key(std::int64_t api_key_id) const {

@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS ip_service_levels (
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY,
-    key_plain TEXT,
     key_hash TEXT NOT NULL,
     key_prefix TEXT,
     service_name TEXT,

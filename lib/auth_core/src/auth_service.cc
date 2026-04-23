@@ -1,4 +1,5 @@
 #include "auth_core/api_key_hasher.h"
+#include "auth_core/access_level.h"
 #include "auth_core/ip_rule_matcher.h"
 #include "auth_core/auth_service.h"
 #include "common/debug_log.h"
@@ -118,10 +119,13 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
         std::cerr << "[auth_core] final level=" << final_access_level << std::endl;
     }
     if (request_context.required_access_level.has_value() &&
-        final_access_level < *request_context.required_access_level) {
+        !access_level_satisfies(final_access_level, request_context.required_access_level)) {
         if (roche_limit::common::verbose_logging_enabled()) {
             std::cerr << "[auth_core] insufficient level required="
-                      << *request_context.required_access_level << std::endl;
+                      << (request_context.required_access_level.has_value()
+                              ? std::to_string(*request_context.required_access_level)
+                              : "-")
+                      << std::endl;
         }
         return AuthResult{
             .decision = AuthDecision::Deny,
@@ -131,7 +135,8 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
             .api_key_record_id = api_key_record_id,
         };
     }
-    if (final_access_level <= 0) {
+    const auto final_level = AccessLevel::from_int(final_access_level);
+    if (!final_level.has_value() || !final_level->is_allowed()) {
         return AuthResult{
             .decision = AuthDecision::Deny,
             .access_level = 0,

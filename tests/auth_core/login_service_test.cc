@@ -528,6 +528,34 @@ void test_session_auth_rejects_invalid_session() {
     expect(result.reason == "invalid_session", "unknown session should report invalid_session");
 }
 
+void test_session_auth_rejects_expired_session() {
+    FakeAuthRepository auth_repository;
+    FakeLoginRepository login_repository;
+    login_repository.sessions.push_back(UserSessionRecord{
+        .id = 1,
+        .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+        .user_id = 22,
+        .expires_at = "2000-01-01 00:00:00",
+        .last_seen_at = "",
+        .revoked_at = std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+    LoginService service(auth_repository, login_repository);
+
+    const auto result = service.authorize_session(SessionAuthRequest{
+        .client_ip = "198.51.100.20",
+        .service_name = "web",
+        .required_access_level = 60,
+        .session_token = std::string("session-token"),
+    });
+
+    expect(result.decision == LoginDecision::Deny, "expired session should be denied");
+    expect(result.reason == "expired_session", "expired session should report expired_session");
+    expect(login_repository.session_revoked, "expired session should be revoked");
+    expect(!login_repository.last_seen_updated, "expired session should not update last seen");
+}
+
 void test_logout_revokes_existing_session() {
     FakeAuthRepository auth_repository;
     FakeLoginRepository login_repository;
@@ -576,6 +604,7 @@ int main() {
     test_session_auth_allows_ip_bypass_when_required_level_is_met();
     test_session_auth_requires_session_when_ip_level_is_insufficient();
     test_session_auth_rejects_invalid_session();
+    test_session_auth_rejects_expired_session();
     test_logout_revokes_existing_session();
     std::cout << "roche_limit_login_service_tests: ok" << std::endl;
     return 0;

@@ -8,7 +8,9 @@ add_executable(roche-limit
     http/login_asset_loader.cc
     http/login_controller.cc
     http/login_page_renderer.cc
+    http/metrics_controller.cc
     http/request_extractor.cc
+    http/request_observability.cc
     http/root_controller.cc
 )
 

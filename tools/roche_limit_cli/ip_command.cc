@@ -68,6 +68,7 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
     }
 
     if (action == "compact-ids") {
+        require_experimental_cli("ip compact-ids");
         repository.compact_ip_ids();
         std::cout << "compacted ip ids\n";
         return;

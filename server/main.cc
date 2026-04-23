@@ -12,6 +12,7 @@
 #include "config/app_config.h"
 #include "http/auth_controller.h"
 #include "http/login_controller.h"
+#include "http/metrics_controller.h"
 #include "http/root_controller.h"
 
 int main(int argc, char* argv[]) {
@@ -37,6 +38,7 @@ int main(int argc, char* argv[]) {
     roche_limit::server::http::register_root_routes();
     roche_limit::server::http::register_auth_routes(auth_service);
     roche_limit::server::http::register_login_routes(login_service);
+    roche_limit::server::http::register_metrics_routes();
 
     std::cout << "Using sqlite database at " << config.database_path << std::endl;
     std::cout << "Starting roche-limit on port " << config.port << std::endl;

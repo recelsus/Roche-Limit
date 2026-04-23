@@ -51,6 +51,7 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
     }
 
     if (action == "compact-ids") {
+        require_experimental_cli("user compact-ids");
         repository.compact_user_ids();
         std::cout << "compacted user ids\n";
         return;
