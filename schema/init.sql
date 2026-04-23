@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS ip_service_levels (
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY,
     key_hash TEXT NOT NULL,
+    key_lookup_hash TEXT NOT NULL,
     key_prefix TEXT,
     service_name TEXT,
     access_level INTEGER NOT NULL CHECK (access_level >= 0),
@@ -41,7 +42,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     note TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (key_hash, service_name)
+    UNIQUE (key_lookup_hash, service_name)
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -87,6 +88,23 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    event_type TEXT NOT NULL,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT,
+    target_type TEXT,
+    target_id TEXT,
+    service_name TEXT,
+    access_level INTEGER,
+    client_ip TEXT,
+    request_id TEXT,
+    result TEXT NOT NULL,
+    reason TEXT,
+    metadata_json TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_ip_rules_effect_enabled
     ON ip_rules (effect, enabled);
 
@@ -96,11 +114,11 @@ CREATE INDEX IF NOT EXISTS idx_ip_rules_value_prefix_enabled
 CREATE INDEX IF NOT EXISTS idx_ip_service_levels_service_rule_enabled
     ON ip_service_levels (service_name, ip_rule_id, enabled);
 
-CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash
-    ON api_keys (key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_key_lookup_hash
+    ON api_keys (key_lookup_hash);
 
-CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash_service_enabled
-    ON api_keys (key_hash, service_name, enabled);
+CREATE INDEX IF NOT EXISTS idx_api_keys_key_lookup_hash_service_enabled
+    ON api_keys (key_lookup_hash, service_name, enabled);
 
 CREATE INDEX IF NOT EXISTS idx_users_username_enabled
     ON users (username, enabled);
@@ -113,3 +131,12 @@ CREATE INDEX IF NOT EXISTS idx_user_sessions_token_hash
 
 CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id
     ON user_sessions (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_created_at
+    ON audit_events (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_type_created_at
+    ON audit_events (event_type, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_request_id
+    ON audit_events (request_id);
