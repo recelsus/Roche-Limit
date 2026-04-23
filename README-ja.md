@@ -29,8 +29,22 @@ nginxの`auth_request`を前提の認証専用サーバー。
   ログアウト処理
 - `/session/auth`
   Cookie session 用の認証判定
+- `/metrics`
+  Prometheus text 形式のメトリクス
 
 これらは nginx からの内部利用を前提とした構成です。
+`/metrics` は内部 network に留めるか、nginx 側で保護してください。
+
+## Observability
+
+認証系のレスポンスには `X-Request-Id` を付与します。nginx のログと Roche-Limit 側のログを突き合わせるための値です。
+
+`/metrics` は Prometheus 形式の counter を返します。
+
+- `roche_limit_auth_requests_total`
+  `endpoint`, `result`, `reason` ごとの認証関連リクエスト数
+- `roche_limit_request_ids_issued_total`
+  プロセスが発行した request id の数
 
 ## Rules
 
@@ -63,9 +77,61 @@ nginxの`auth_request`を前提の認証専用サーバー。
 API キーは `Bearer` を優先し、次に `X-API-Key` を参照します。
 必要であれば `X-Required-Level` を nginx から渡し、`/auth` 側で必要レベル判定を行えます。
 
+`X-Real-IP` / `X-Forwarded-For` は `ROCHE_LIMIT_TRUSTED_PROXIES` に一致する接続元から来た場合のみ信用します。未設定時は forwarded 系ヘッダを無視し、直接の peer IP を使用します。
+
+例:
+
+```env
+ROCHE_LIMIT_TRUSTED_PROXIES=127.0.0.1,::1,172.18.0.0/16
+```
+
+Cookie session は `roche_limit_session` を使用し、既定で `Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800` を付与します。
+
+Session cookie は環境変数で変更できます。
+
+- `ROCHE_LIMIT_SESSION_COOKIE_NAME`
+  既定値: `roche_limit_session`
+- `ROCHE_LIMIT_SESSION_COOKIE_PATH`
+  既定値: `/`
+- `ROCHE_LIMIT_SESSION_COOKIE_DOMAIN`
+  既定値: 未設定
+- `ROCHE_LIMIT_SESSION_COOKIE_SAMESITE`
+  既定値: `Lax`; 利用値: `Lax`, `Strict`, `None`
+- `ROCHE_LIMIT_SESSION_COOKIE_SECURE`
+  既定値: `1`
+- `ROCHE_LIMIT_SESSION_COOKIE_HTTP_ONLY`
+  既定値: `1`
+- `ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE`
+  既定値: `604800`
+
+## Response Headers
+
+認証 endpoint は次のヘッダを返します。
+
+- `X-Request-Id`
+  リクエスト単位の照合用 ID
+- `X-Auth-Level`
+  付与された数値アクセスレベル
+- `X-Auth-Reason`
+  機械可読な認証 reason
+- `X-Auth-Service`
+  Roche-Limit が判定した対象 service
+- `X-Auth-IP-Rule-Id`
+  IP ルールに一致した場合の rule id
+- `X-Auth-Key-Id`
+  API キーに一致した場合の key id
+- `X-Auth-User-Id`
+  session auth で一致した user id
+- `X-Auth-Session-Id`
+  session auth で一致した session id
+
 ## CLI
 
 詳細は [`docs/cli.md`](./docs/cli.md) を参照。
+
+## DB Migration
+
+新規 DB は [`schema/init.sql`](./schema/init.sql) から作成します。既存 DB の更新方針は [`docs/migration.md`](./docs/migration.md) を参照してください。
 
 ## Nginx Config Sample
 

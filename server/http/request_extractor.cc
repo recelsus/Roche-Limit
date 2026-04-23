@@ -1,15 +1,16 @@
 #include "request_extractor.h"
 #include "client_ip_resolver.h"
+#include "session_cookie_config.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <charconv>
+#include <drogon/drogon.h>
 
 namespace roche_limit::server::http {
 
 namespace {
-
-constexpr std::string_view kSessionCookieName = "roche_limit_session";
 
 bool starts_with_bearer_token(std::string_view value) {
     constexpr std::string_view kBearerPrefix = "Bearer ";
@@ -36,6 +37,14 @@ std::string trim(std::string value) {
 
 std::string extract_client_ip(const drogon::HttpRequestPtr& request) {
     static const auto trusted_proxy_rules = load_trusted_proxy_rules_from_env();
+    static std::atomic_bool warned_untrusted_forwarded_headers{false};
+    bool expected = false;
+    if (trusted_proxy_rules.empty() &&
+        (!request->getHeader("X-Real-IP").empty() || !request->getHeader("X-Forwarded-For").empty())) {
+        if (warned_untrusted_forwarded_headers.compare_exchange_strong(expected, true)) {
+            LOG_WARN << "forwarded client IP headers ignored because ROCHE_LIMIT_TRUSTED_PROXIES is unset";
+        }
+    }
     return resolve_client_ip(request->peerAddr().toIp(),
                              request->getHeader("X-Real-IP"),
                              request->getHeader("X-Forwarded-For"),
@@ -101,7 +110,7 @@ roche_limit::auth_core::LoginRequest build_login_request(
 
 roche_limit::auth_core::SessionAuthRequest build_session_auth_request(
     const drogon::HttpRequestPtr& request) {
-    const auto session_cookie = request->getCookie(std::string(kSessionCookieName));
+    const auto session_cookie = request->getCookie(load_session_cookie_config().name);
     return roche_limit::auth_core::SessionAuthRequest{
         .client_ip = extract_client_ip(request),
         .service_name = trim(request->getHeader("X-Target-Service")),

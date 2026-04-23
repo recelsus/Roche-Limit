@@ -43,6 +43,29 @@ server {
 - `X-Real-IP` と `X-Forwarded-For` は両方渡しておく
 - `auth_request_set` は backend へ補助情報を引き継ぎたい場合のみ利用する
 
+`roche-limit` 側では `ROCHE_LIMIT_TRUSTED_PROXIES` に一致する接続元から来た場合のみ `X-Real-IP` / `X-Forwarded-For` を信用します。Docker の nginx reverse proxy 例では次のように設定できます。
+
+```env
+ROCHE_LIMIT_TRUSTED_PROXIES=127.0.0.1,::1,172.18.0.0/16
+```
+
+本番でより厳密にする場合は、nginx の固定 IP または nginx と `roche-limit` の専用 Docker network の CIDR に絞ってください。
+
+`roche-limit` は `/metrics` で Prometheus text 形式の counter を返します。外部公開せず、Prometheus など監視系コンテナからだけ到達できる network に置くか、nginx 側で別途保護してください。
+
+サブパス配下に login を置く場合でも、通常は cookie `Path=/` のままで問題ありません。複数の Roche-Limit インスタンスを同一ドメインで使い分ける場合は、`ROCHE_LIMIT_SESSION_COOKIE_NAME` や `ROCHE_LIMIT_SESSION_COOKIE_PATH` を分けて衝突を避けてください。
+
+主なレスポンスヘッダ:
+
+- `X-Request-Id`
+  nginx と Roche-Limit のログ照合用
+- `X-Auth-Level`
+  backend に渡すアクセスレベル
+- `X-Auth-Reason`
+  判定理由
+- `X-Auth-Service`
+  判定対象 service
+
 ## 複数 service の例
 
 ```nginx

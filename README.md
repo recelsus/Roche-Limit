@@ -29,8 +29,22 @@ A dedicated authorisation server designed around nginx `auth_request`.
   Logout endpoint
 - `/session/auth`
   Cookie session authorisation
+- `/metrics`
+  Prometheus text metrics
 
 These endpoints are intended to be used behind nginx.
+Keep `/metrics` on an internal network or protect it at nginx.
+
+## Observability
+
+Auth-related responses include `X-Request-Id` so nginx logs and Roche-Limit logs can be correlated.
+
+`/metrics` exposes Prometheus-style counters:
+
+- `roche_limit_auth_requests_total`
+  Counted by `endpoint`, `result`, and `reason`
+- `roche_limit_request_ids_issued_total`
+  Number of request ids issued by the running process
 
 ## Rules
 
@@ -64,9 +78,61 @@ Unknown IPs default to `30`.
 For API keys, `Bearer` is checked first, then `X-API-Key`.
 If needed, nginx may also pass `X-Required-Level`, and `/auth` will enforce the required level directly.
 
+`X-Real-IP` and `X-Forwarded-For` are trusted only when the direct peer matches `ROCHE_LIMIT_TRUSTED_PROXIES`. If it is not set, forwarded headers are ignored and the peer IP is used.
+
+Example:
+
+```env
+ROCHE_LIMIT_TRUSTED_PROXIES=127.0.0.1,::1,172.18.0.0/16
+```
+
+Cookie sessions use `roche_limit_session` with `Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800` by default.
+
+Session cookie settings can be overridden with environment variables:
+
+- `ROCHE_LIMIT_SESSION_COOKIE_NAME`
+  Default: `roche_limit_session`
+- `ROCHE_LIMIT_SESSION_COOKIE_PATH`
+  Default: `/`
+- `ROCHE_LIMIT_SESSION_COOKIE_DOMAIN`
+  Default: unset
+- `ROCHE_LIMIT_SESSION_COOKIE_SAMESITE`
+  Default: `Lax`; supported values: `Lax`, `Strict`, `None`
+- `ROCHE_LIMIT_SESSION_COOKIE_SECURE`
+  Default: `1`
+- `ROCHE_LIMIT_SESSION_COOKIE_HTTP_ONLY`
+  Default: `1`
+- `ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE`
+  Default: `604800`
+
+## Response Headers
+
+Auth endpoints may return the following headers:
+
+- `X-Request-Id`
+  Per-request correlation id
+- `X-Auth-Level`
+  Granted numeric access level
+- `X-Auth-Reason`
+  Machine-readable auth reason
+- `X-Auth-Service`
+  Target service evaluated by Roche-Limit
+- `X-Auth-IP-Rule-Id`
+  Matched IP rule id, when an IP rule matched
+- `X-Auth-Key-Id`
+  Matched API key id, when an API key matched
+- `X-Auth-User-Id`
+  Matched user id for session auth
+- `X-Auth-Session-Id`
+  Matched session id for session auth
+
 ## CLI
 
 See [`docs/cli.md`](./docs/cli.md) for details.
+
+## DB Migration
+
+New databases are created from [`schema/init.sql`](./schema/init.sql). See [`docs/migration.md`](./docs/migration.md) for the existing database upgrade policy.
 
 ## Nginx Config Sample
 

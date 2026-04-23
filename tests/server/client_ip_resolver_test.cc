@@ -55,6 +55,26 @@ void test_invalid_trusted_proxy_entries_are_ignored() {
     expect(resolved == "198.51.100.4", "valid trusted proxy cidr should still apply");
 }
 
+void test_trusted_peer_ignores_malformed_forwarded_headers() {
+    const auto trusted =
+        roche_limit::server::http::parse_trusted_proxy_rules("172.18.0.0/16");
+    const auto resolved = roche_limit::server::http::resolve_client_ip("172.18.0.3",
+                                                                       "not-an-ip",
+                                                                       "also-not-an-ip, 172.18.0.3",
+                                                                       trusted);
+    expect(resolved == "172.18.0.3", "malformed forwarded headers should fall back to peer ip");
+}
+
+void test_ipv6_trusted_proxy_support() {
+    const auto trusted =
+        roche_limit::server::http::parse_trusted_proxy_rules("fd00::/8,::1");
+    const auto resolved = roche_limit::server::http::resolve_client_ip("fd00::10",
+                                                                       "2001:db8::42",
+                                                                       "",
+                                                                       trusted);
+    expect(resolved == "2001:db8::42", "trusted IPv6 proxy should allow x-real-ip");
+}
+
 }  // namespace
 
 int main() {
@@ -62,5 +82,7 @@ int main() {
     test_trusted_peer_prefers_x_real_ip();
     test_trusted_peer_uses_forwarded_for_when_real_ip_missing();
     test_invalid_trusted_proxy_entries_are_ignored();
+    test_trusted_peer_ignores_malformed_forwarded_headers();
+    test_ipv6_trusted_proxy_support();
     return 0;
 }

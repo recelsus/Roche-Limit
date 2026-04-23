@@ -1,5 +1,6 @@
 #include "auth_controller.h"
 
+#include "auth_core/auth_reason.h"
 #include "auth_core/auth_result.h"
 #include "auth_core/auth_service.h"
 #include "common/debug_log.h"
@@ -39,9 +40,9 @@ void register_auth_routes(std::shared_ptr<const roche_limit::auth_core::AuthServ
                     response->setStatusCode(drogon::k403Forbidden);
                     response->addHeader("X-Request-Id", request_id);
                     response->addHeader("X-Auth-Level", "0");
-                    response->addHeader("X-Auth-Reason", "missing_service");
+                    response->addHeader("X-Auth-Reason", roche_limit::auth_core::auth_reason::MissingService);
                     response->addHeader("X-Auth-Service", "*");
-                    record_auth_request("auth", "deny", "missing_service");
+                    record_auth_request("auth", "deny", roche_limit::auth_core::auth_reason::MissingService);
                     callback(response);
                     return;
                 }
@@ -86,9 +87,9 @@ void register_auth_routes(std::shared_ptr<const roche_limit::auth_core::AuthServ
                 response->setStatusCode(drogon::k500InternalServerError);
                 response->addHeader("X-Request-Id", request_id);
                 response->addHeader("X-Auth-Level", "0");
-                response->addHeader("X-Auth-Reason", "internal_error");
+                response->addHeader("X-Auth-Reason", roche_limit::auth_core::auth_reason::InternalError);
                 response->addHeader("X-Auth-Service", "*");
-                record_auth_request("auth", "error", "internal_error");
+                record_auth_request("auth", "error", roche_limit::auth_core::auth_reason::InternalError);
                 callback(response);
             }
         };

@@ -12,6 +12,7 @@ add_executable(roche-limit
     http/request_extractor.cc
     http/request_observability.cc
     http/root_controller.cc
+    http/session_cookie_config.cc
 )
 
 target_link_libraries(roche-limit

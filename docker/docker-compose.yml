@@ -6,6 +6,11 @@ services:
     # Example:
     # environment:
     #   ROCHE_LIMIT_TRUSTED_PROXIES: "127.0.0.1,::1,172.18.0.0/16"
+    #   ROCHE_LIMIT_SESSION_COOKIE_NAME: "roche_limit_session"
+    #   ROCHE_LIMIT_SESSION_COOKIE_PATH: "/"
+    #   ROCHE_LIMIT_SESSION_COOKIE_SAMESITE: "Lax"
+    #   ROCHE_LIMIT_SESSION_COOKIE_SECURE: "1"
+    #   ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE: "604800"
 
     # Test only.
     # In production, remove `ports` and place this container on the same

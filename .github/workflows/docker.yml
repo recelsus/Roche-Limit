@@ -11,6 +11,7 @@ on:
       - "server/**"
       - "schema/**"
       - "tools/**"
+      - "tests/**"
       - "docker/**"
       - ".github/workflows/docker.yml"
       - "CMakeLists.txt"
@@ -22,6 +23,7 @@ on:
       - "server/**"
       - "schema/**"
       - "tools/**"
+      - "tests/**"
       - "docker/**"
       - ".github/workflows/docker.yml"
       - "CMakeLists.txt"
@@ -32,7 +34,58 @@ permissions:
   packages: write
 
 jobs:
+  build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            cmake \
+            git \
+            libc-ares-dev \
+            libjsoncpp-dev \
+            libsodium-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            ninja-build \
+            pkg-config \
+            uuid-dev \
+            zlib1g-dev
+
+      - name: Build Drogon
+        run: |
+          git clone --depth 1 --recursive --shallow-submodules --branch v1.9.11 https://github.com/drogonframework/drogon.git /tmp/drogon
+          cmake -S /tmp/drogon -B /tmp/drogon/build -GNinja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/tmp/drogon-install \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_ORM=OFF \
+            -DBUILD_CTL=OFF
+          cmake --build /tmp/drogon/build
+          cmake --install /tmp/drogon/build
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -GNinja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_PREFIX_PATH=/tmp/drogon-install \
+            -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   build-and-push:
+    needs: build-test
     runs-on: ubuntu-latest
     env:
       GHCR_HAS_PAT: ${{ secrets.GHCR_PAT != '' }}

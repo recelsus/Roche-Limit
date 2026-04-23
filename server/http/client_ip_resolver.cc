@@ -78,7 +78,11 @@ std::string extract_forwarded_ip(std::string_view forwarded_for_header) {
     }
 
     const auto separator = forwarded_for_header.find(',');
-    return trim(std::string(forwarded_for_header.substr(0, separator)));
+    const auto forwarded_ip = trim(std::string(forwarded_for_header.substr(0, separator)));
+    if (!roche_limit::auth_core::is_valid_ip_address(forwarded_ip)) {
+        return {};
+    }
+    return forwarded_ip;
 }
 
 bool is_trusted_proxy(std::string_view peer_ip,
@@ -134,7 +138,7 @@ std::string resolve_client_ip(std::string_view peer_ip,
     }
 
     const auto real_ip = trim(std::string(real_ip_header));
-    if (!real_ip.empty()) {
+    if (!real_ip.empty() && roche_limit::auth_core::is_valid_ip_address(real_ip)) {
         return real_ip;
     }
 

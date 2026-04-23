@@ -1,11 +1,13 @@
 #include "login_controller.h"
 
+#include "auth_core/auth_reason.h"
 #include "auth_core/login_result.h"
 #include "auth_core/login_service.h"
 #include "common/debug_log.h"
 #include "login_page_renderer.h"
 #include "request_extractor.h"
 #include "request_observability.h"
+#include "session_cookie_config.h"
 
 #include <drogon/drogon.h>
 
@@ -14,12 +16,6 @@
 namespace roche_limit::server::http {
 
 namespace {
-
-constexpr std::string_view kSessionCookieName = "roche_limit_session";
-constexpr std::string_view kCookieAttributes =
-    "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800";
-constexpr std::string_view kClearCookieAttributes =
-    "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
 
 drogon::HttpResponsePtr make_basic_response(drogon::HttpStatusCode status_code) {
     auto response = drogon::HttpResponse::newHttpResponse();
@@ -33,14 +29,12 @@ void add_request_id(const drogon::HttpResponsePtr& response, std::string_view re
 
 void add_session_cookie(const drogon::HttpResponsePtr& response, std::string_view session_token) {
     response->addHeader("Set-Cookie",
-                        std::string(kSessionCookieName) + "=" + std::string(session_token) +
-                            std::string(kCookieAttributes));
+                        make_session_cookie_header(session_token, load_session_cookie_config()));
 }
 
 void clear_session_cookie(const drogon::HttpResponsePtr& response) {
     response->addHeader("Set-Cookie",
-                        std::string(kSessionCookieName) + "=deleted" +
-                            std::string(kClearCookieAttributes));
+                        make_clear_session_cookie_header(load_session_cookie_config()));
 }
 
 void handle_login(const std::shared_ptr<const roche_limit::auth_core::LoginService>& login_service,
@@ -69,7 +63,7 @@ void handle_login(const std::shared_ptr<const roche_limit::auth_core::LoginServi
         LOG_ERROR << "login handler failed request_id=" << request_id << ": " << ex.what();
         auto response = make_basic_response(drogon::k500InternalServerError);
         add_request_id(response, request_id);
-        record_auth_request("login", "error", "internal_error");
+        record_auth_request("login", "error", roche_limit::auth_core::auth_reason::InternalError);
         callback(response);
     }
 }
@@ -85,9 +79,9 @@ void handle_session_auth(
             auto response = make_basic_response(drogon::k403Forbidden);
             add_request_id(response, request_id);
             response->addHeader("X-Auth-Level", "0");
-            response->addHeader("X-Auth-Reason", "missing_service");
+            response->addHeader("X-Auth-Reason", roche_limit::auth_core::auth_reason::MissingService);
             response->addHeader("X-Auth-Service", "*");
-            record_auth_request("session_auth", "deny", "missing_service");
+            record_auth_request("session_auth", "deny", roche_limit::auth_core::auth_reason::MissingService);
             callback(response);
             return;
         }
@@ -116,7 +110,7 @@ void handle_session_auth(
         LOG_ERROR << "session auth handler failed request_id=" << request_id << ": " << ex.what();
         auto response = make_basic_response(drogon::k500InternalServerError);
         add_request_id(response, request_id);
-        record_auth_request("session_auth", "error", "internal_error");
+        record_auth_request("session_auth", "error", roche_limit::auth_core::auth_reason::InternalError);
         callback(response);
     }
 }
@@ -133,13 +127,13 @@ void handle_logout(const std::shared_ptr<const roche_limit::auth_core::LoginServ
         auto response = make_basic_response(drogon::k204NoContent);
         add_request_id(response, request_id);
         clear_session_cookie(response);
-        record_auth_request("logout", "allow", "logout");
+        record_auth_request("logout", "allow", roche_limit::auth_core::auth_reason::Logout);
         callback(response);
     } catch (const std::exception& ex) {
         LOG_ERROR << "logout handler failed request_id=" << request_id << ": " << ex.what();
         auto response = make_basic_response(drogon::k500InternalServerError);
         add_request_id(response, request_id);
-        record_auth_request("logout", "error", "internal_error");
+        record_auth_request("logout", "error", roche_limit::auth_core::auth_reason::InternalError);
         callback(response);
     }
 }

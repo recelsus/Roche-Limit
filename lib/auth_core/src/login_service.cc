@@ -1,6 +1,7 @@
 #include "auth_core/login_service.h"
 
 #include "auth_core/access_level.h"
+#include "auth_core/auth_reason.h"
 #include "auth_core/ip_rule_matcher.h"
 #include "auth_core/password_hasher.h"
 #include "common/hash_util.h"
@@ -80,7 +81,7 @@ IpAccessResult resolve_ip_access_level(const AuthRepository& auth_repository,
     if (!allow_match.has_value()) {
         return IpAccessResult{
             .access_level = 30,
-            .reason = "unknown_ip",
+            .reason = auth_reason::UnknownIp,
         };
     }
 
@@ -89,13 +90,13 @@ IpAccessResult resolve_ip_access_level(const AuthRepository& auth_repository,
         service_level.has_value()) {
         return IpAccessResult{
             .access_level = service_level->access_level,
-            .reason = "ip_service_override",
+            .reason = auth_reason::IpServiceOverride,
         };
     }
 
     return IpAccessResult{
         .access_level = 60,
-        .reason = "ip_allow",
+        .reason = auth_reason::IpAllow,
     };
 }
 
@@ -109,13 +110,13 @@ LoginResult LoginService::login(const LoginRequest& request) const {
     if (!is_valid_ip_address(request.client_ip)) {
         return LoginResult{
             .decision = LoginDecision::Deny,
-            .reason = "invalid_client_ip",
+            .reason = auth_reason::InvalidClientIp,
         };
     }
     if (is_ip_denied(auth_repository_, request.client_ip)) {
         return LoginResult{
             .decision = LoginDecision::Deny,
-            .reason = "ip_deny",
+            .reason = auth_reason::IpDeny,
         };
     }
 
@@ -123,7 +124,7 @@ LoginResult LoginService::login(const LoginRequest& request) const {
     if (!user.has_value()) {
         return LoginResult{
             .decision = LoginDecision::Deny,
-            .reason = "invalid_credentials",
+            .reason = auth_reason::InvalidCredentials,
         };
     }
 
@@ -131,7 +132,7 @@ LoginResult LoginService::login(const LoginRequest& request) const {
     if (!credential.has_value() || !verify_password(request.password, credential->password_hash)) {
         return LoginResult{
             .decision = LoginDecision::Deny,
-            .reason = "invalid_credentials",
+            .reason = auth_reason::InvalidCredentials,
         };
     }
 
@@ -143,7 +144,7 @@ LoginResult LoginService::login(const LoginRequest& request) const {
 
     return LoginResult{
         .decision = LoginDecision::Allow,
-        .reason = "login_success",
+        .reason = auth_reason::LoginSuccess,
         .user_id = user->id,
         .session_token = session_token,
         .expires_at = expires_at,
@@ -155,14 +156,14 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
-            .reason = "invalid_client_ip",
+            .reason = auth_reason::InvalidClientIp,
         };
     }
     if (is_ip_denied(auth_repository_, request.client_ip)) {
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
-            .reason = "ip_deny",
+            .reason = auth_reason::IpDeny,
         };
     }
 
@@ -179,7 +180,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
-            .reason = "missing_session",
+            .reason = auth_reason::MissingSession,
         };
     }
 
@@ -189,7 +190,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
-            .reason = "invalid_session",
+            .reason = auth_reason::InvalidSession,
         };
     }
     if (session_is_expired(session->expires_at)) {
@@ -197,7 +198,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
-            .reason = "expired_session",
+            .reason = auth_reason::ExpiredSession,
             .session_id = session->id,
         };
     }
@@ -207,7 +208,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
-            .reason = "invalid_session",
+            .reason = auth_reason::InvalidSession,
             .session_id = session->id,
         };
     }
@@ -223,7 +224,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
         return SessionAuthResult{
             .decision = LoginDecision::Deny,
             .access_level = 0,
-            .reason = "insufficient_level",
+            .reason = auth_reason::InsufficientLevel,
             .user_id = user->id,
             .session_id = session->id,
         };
@@ -235,7 +236,7 @@ SessionAuthResult LoginService::authorize_session(const SessionAuthRequest& requ
     return SessionAuthResult{
         .decision = session_level_allowed ? LoginDecision::Allow : LoginDecision::Deny,
         .access_level = session_level_allowed ? access_level : 0,
-        .reason = session_level_allowed ? "session_allow" : "insufficient_level",
+        .reason = session_level_allowed ? auth_reason::SessionAllow : auth_reason::InsufficientLevel,
         .user_id = user->id,
         .session_id = session->id,
     };

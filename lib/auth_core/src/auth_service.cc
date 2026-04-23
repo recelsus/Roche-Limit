@@ -1,5 +1,6 @@
 #include "auth_core/api_key_hasher.h"
 #include "auth_core/access_level.h"
+#include "auth_core/auth_reason.h"
 #include "auth_core/ip_rule_matcher.h"
 #include "auth_core/auth_service.h"
 #include "common/debug_log.h"
@@ -34,7 +35,7 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
         return AuthResult{
             .decision = AuthDecision::Deny,
             .access_level = 0,
-            .reason = "invalid_client_ip",
+            .reason = auth_reason::InvalidClientIp,
         };
     }
     if (roche_limit::common::verbose_logging_enabled()) {
@@ -50,7 +51,7 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
         return AuthResult{
             .decision = AuthDecision::Deny,
             .access_level = 0,
-            .reason = "ip_deny",
+            .reason = auth_reason::IpDeny,
             .matched_ip_rule_id = deny_match->id,
         };
     }
@@ -60,14 +61,14 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
 
     int ip_access_level = 30;
     std::optional<std::int64_t> matched_ip_rule_id;
-    std::string reason = "unknown_ip";
+    std::string reason = auth_reason::UnknownIp;
 
     const auto allow_match = select_most_specific_ip_match(
         request_context.client_ip, repository_.list_ip_rules(IpRuleEffect::Allow));
     if (allow_match.has_value()) {
         ip_access_level = 60;
         matched_ip_rule_id = allow_match->id;
-        reason = "ip_allow";
+        reason = auth_reason::IpAllow;
         if (roche_limit::common::verbose_logging_enabled()) {
             std::cerr << "[auth_core] allow match id=" << allow_match->id << std::endl;
         }
@@ -76,7 +77,7 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
             repository_.find_ip_service_level(allow_match->id, request_context.service_name);
         if (service_level.has_value()) {
             ip_access_level = service_level->access_level;
-            reason = "ip_service_override";
+            reason = auth_reason::IpServiceOverride;
             if (roche_limit::common::verbose_logging_enabled()) {
                 std::cerr << "[auth_core] service override level=" << ip_access_level << std::endl;
             }
@@ -106,7 +107,7 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
                           << " level=" << api_key_access_level << std::endl;
             }
             if (api_key_access_level > ip_access_level) {
-                reason = "api_key_elevated";
+                reason = auth_reason::ApiKeyElevated;
             }
         }
     }
@@ -130,7 +131,7 @@ AuthResult AuthService::authorize(const RequestContext& request_context) const {
         return AuthResult{
             .decision = AuthDecision::Deny,
             .access_level = 0,
-            .reason = "insufficient_level",
+            .reason = auth_reason::InsufficientLevel,
             .matched_ip_rule_id = matched_ip_rule_id,
             .api_key_record_id = api_key_record_id,
         };

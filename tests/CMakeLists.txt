@@ -16,6 +16,11 @@ add_executable(roche_limit_request_observability_tests
     ../server/http/request_observability.cc
 )
 
+add_executable(roche_limit_session_cookie_config_tests
+    server/session_cookie_config_test.cc
+    ../server/http/session_cookie_config.cc
+)
+
 add_executable(roche_limit_auth_store_integration_tests
     auth_store/repository_integration_test.cc
 )
@@ -48,6 +53,11 @@ target_link_libraries(roche_limit_request_observability_tests
         roche_limit_common
 )
 
+target_link_libraries(roche_limit_session_cookie_config_tests
+    PRIVATE
+        roche_limit_common
+)
+
 target_link_libraries(roche_limit_auth_store_integration_tests
     PRIVATE
         roche_limit_auth_store
@@ -67,6 +77,12 @@ target_include_directories(roche_limit_client_ip_resolver_tests
 )
 
 target_include_directories(roche_limit_request_observability_tests
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/server/http
+)
+
+target_include_directories(roche_limit_session_cookie_config_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/server/http
@@ -95,6 +111,11 @@ add_test(
 add_test(
     NAME roche_limit_request_observability_tests
     COMMAND roche_limit_request_observability_tests
+)
+
+add_test(
+    NAME roche_limit_session_cookie_config_tests
+    COMMAND roche_limit_session_cookie_config_tests
 )
 
 add_test(
