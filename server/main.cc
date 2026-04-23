@@ -33,7 +33,12 @@ int main(int argc, char *argv[]) {
   auto audit_repository =
       std::make_shared<roche_limit::auth_store::AuditRepository>(
           config.database_path);
-  audit_repository->cleanup(config.audit_retention_days, config.audit_max_rows);
+  try {
+    audit_repository->cleanup(config.audit_retention_days,
+                              config.audit_max_rows);
+  } catch (const std::exception &ex) {
+    std::cerr << "audit cleanup failed: " << ex.what() << std::endl;
+  }
   auto auth_service =
       std::make_shared<roche_limit::auth_core::AuthService>(*repository);
   auto login_service = std::make_shared<roche_limit::auth_core::LoginService>(

@@ -21,6 +21,20 @@ status_from_result(const roche_limit::auth_core::AuthResult &auth_result) {
              : drogon::k403Forbidden;
 }
 
+void try_insert_audit_event(
+    const std::shared_ptr<const roche_limit::auth_store::AuditRepository>
+        &audit_repository,
+    const roche_limit::auth_store::NewAuditEvent &event,
+    std::string_view context) {
+  try {
+    audit_repository->insert_event(event);
+  } catch (const std::exception &ex) {
+    LOG_ERROR << "audit insert failed context=" << context << ": " << ex.what();
+  } catch (...) {
+    LOG_ERROR << "audit insert failed context=" << context << ": unknown error";
+  }
+}
+
 } // namespace
 
 void register_auth_routes(
@@ -54,15 +68,18 @@ void register_auth_routes(
         record_auth_request(
             "auth", "deny",
             roche_limit::auth_core::auth_reason::MissingService);
-        audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-            .event_type = "auth_deny",
-            .actor_type = "unknown",
-            .service_name = std::string("*"),
-            .client_ip = request_context.client_ip,
-            .request_id = request_id,
-            .result = "deny",
-            .reason = roche_limit::auth_core::auth_reason::MissingService,
-        });
+        try_insert_audit_event(
+            audit_repository,
+            roche_limit::auth_store::NewAuditEvent{
+                .event_type = "auth_deny",
+                .actor_type = "unknown",
+                .service_name = std::string("*"),
+                .client_ip = request_context.client_ip,
+                .request_id = request_id,
+                .result = "deny",
+                .reason = roche_limit::auth_core::auth_reason::MissingService,
+            },
+            "auth_missing_service");
         callback(response);
         return;
       }
@@ -111,29 +128,34 @@ void register_auth_routes(
           roche_limit::auth_store::audit_auth_allow_enabled();
       if (auth_result.decision == roche_limit::auth_core::AuthDecision::Deny ||
           audit_allow) {
-        audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-            .event_type = auth_result.decision ==
+        try_insert_audit_event(
+            audit_repository,
+            roche_limit::auth_store::NewAuditEvent{
+                .event_type =
+                    auth_result.decision ==
+                            roche_limit::auth_core::AuthDecision::Allow
+                        ? "auth_allow"
+                        : "auth_deny",
+                .actor_type = auth_result.api_key_record_id.has_value()
+                                  ? "api_key"
+                                  : "ip",
+                .actor_id = auth_result.api_key_record_id.has_value()
+                                ? std::optional<std::string>(std::to_string(
+                                      *auth_result.api_key_record_id))
+                                : std::nullopt,
+                .target_type = "service",
+                .target_id = request_context.service_name,
+                .service_name = request_context.service_name,
+                .access_level = auth_result.access_level,
+                .client_ip = request_context.client_ip,
+                .request_id = request_id,
+                .result = auth_result.decision ==
                                   roche_limit::auth_core::AuthDecision::Allow
-                              ? "auth_allow"
-                              : "auth_deny",
-            .actor_type =
-                auth_result.api_key_record_id.has_value() ? "api_key" : "ip",
-            .actor_id = auth_result.api_key_record_id.has_value()
-                            ? std::optional<std::string>(std::to_string(
-                                  *auth_result.api_key_record_id))
-                            : std::nullopt,
-            .target_type = "service",
-            .target_id = request_context.service_name,
-            .service_name = request_context.service_name,
-            .access_level = auth_result.access_level,
-            .client_ip = request_context.client_ip,
-            .request_id = request_id,
-            .result = auth_result.decision ==
-                              roche_limit::auth_core::AuthDecision::Allow
-                          ? "allow"
-                          : "deny",
-            .reason = auth_result.reason,
-        });
+                              ? "allow"
+                              : "deny",
+                .reason = auth_result.reason,
+            },
+            "auth_result");
       }
       callback(response);
     } catch (const std::exception &ex) {
@@ -148,14 +170,17 @@ void register_auth_routes(
       response->addHeader("X-Auth-Service", "*");
       record_auth_request("auth", "error",
                           roche_limit::auth_core::auth_reason::InternalError);
-      audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-          .event_type = "auth_error",
-          .actor_type = "unknown",
-          .request_id = request_id,
-          .result = "error",
-          .reason = roche_limit::auth_core::auth_reason::InternalError,
-          .metadata_json = std::string("{\"error\":\"handler_failed\"}"),
-      });
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = "auth_error",
+              .actor_type = "unknown",
+              .request_id = request_id,
+              .result = "error",
+              .reason = roche_limit::auth_core::auth_reason::InternalError,
+              .metadata_json = std::string("{\"error\":\"handler_failed\"}"),
+          },
+          "auth_error");
       callback(response);
     }
   };

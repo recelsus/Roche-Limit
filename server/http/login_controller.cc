@@ -42,6 +42,20 @@ void clear_session_cookie(const drogon::HttpResponsePtr &response) {
                                         load_session_cookie_config()));
 }
 
+void try_insert_audit_event(
+    const std::shared_ptr<const roche_limit::auth_store::AuditRepository>
+        &audit_repository,
+    const roche_limit::auth_store::NewAuditEvent &event,
+    std::string_view context) {
+  try {
+    audit_repository->insert_event(event);
+  } catch (const std::exception &ex) {
+    LOG_ERROR << "audit insert failed context=" << context << ": " << ex.what();
+  } catch (...) {
+    LOG_ERROR << "audit insert failed context=" << context << ": unknown error";
+  }
+}
+
 void handle_login(
     const std::shared_ptr<const roche_limit::auth_core::LoginService>
         &login_service,
@@ -60,18 +74,21 @@ void handle_login(
       add_request_id(response, request_id);
       add_session_cookie(response, *login_result.session_token);
       record_auth_request("login", "allow", login_result.reason);
-      audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-          .event_type = "login_success",
-          .actor_type = "user",
-          .actor_id = login_result.user_id.has_value()
-                          ? std::optional<std::string>(
-                                std::to_string(*login_result.user_id))
-                          : std::nullopt,
-          .client_ip = login_request.client_ip,
-          .request_id = request_id,
-          .result = "success",
-          .reason = login_result.reason,
-      });
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = "login_success",
+              .actor_type = "user",
+              .actor_id = login_result.user_id.has_value()
+                              ? std::optional<std::string>(
+                                    std::to_string(*login_result.user_id))
+                              : std::nullopt,
+              .client_ip = login_request.client_ip,
+              .request_id = request_id,
+              .result = "success",
+              .reason = login_result.reason,
+          },
+          "login_success");
       callback(response);
       return;
     }
@@ -79,14 +96,16 @@ void handle_login(
     auto response = make_basic_response(drogon::k401Unauthorized);
     add_request_id(response, request_id);
     record_auth_request("login", "deny", login_result.reason);
-    audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-        .event_type = "login_failure",
-        .actor_type = "unknown",
-        .client_ip = login_request.client_ip,
-        .request_id = request_id,
-        .result = "deny",
-        .reason = login_result.reason,
-    });
+    try_insert_audit_event(audit_repository,
+                           roche_limit::auth_store::NewAuditEvent{
+                               .event_type = "login_failure",
+                               .actor_type = "unknown",
+                               .client_ip = login_request.client_ip,
+                               .request_id = request_id,
+                               .result = "deny",
+                               .reason = login_result.reason,
+                           },
+                           "login_failure");
     callback(response);
   } catch (const std::exception &ex) {
     LOG_ERROR << "login handler failed request_id=" << request_id << ": "
@@ -118,15 +137,18 @@ void handle_session_auth(
       response->addHeader("X-Auth-Service", "*");
       record_auth_request("session_auth", "deny",
                           roche_limit::auth_core::auth_reason::MissingService);
-      audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-          .event_type = "session_auth_deny",
-          .actor_type = "unknown",
-          .service_name = std::string("*"),
-          .client_ip = auth_request.client_ip,
-          .request_id = request_id,
-          .result = "deny",
-          .reason = roche_limit::auth_core::auth_reason::MissingService,
-      });
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = "session_auth_deny",
+              .actor_type = "unknown",
+              .service_name = std::string("*"),
+              .client_ip = auth_request.client_ip,
+              .request_id = request_id,
+              .result = "deny",
+              .reason = roche_limit::auth_core::auth_reason::MissingService,
+          },
+          "session_auth_missing_service");
       callback(response);
       return;
     }
@@ -157,28 +179,31 @@ void handle_session_auth(
                         auth_result.reason);
     if (auth_result.decision == roche_limit::auth_core::LoginDecision::Deny ||
         roche_limit::auth_store::audit_auth_allow_enabled()) {
-      audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-          .event_type = auth_result.decision ==
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = auth_result.decision ==
+                                    roche_limit::auth_core::LoginDecision::Allow
+                                ? "session_auth_allow"
+                                : "session_auth_deny",
+              .actor_type = auth_result.user_id.has_value() ? "user" : "ip",
+              .actor_id = auth_result.user_id.has_value()
+                              ? std::optional<std::string>(
+                                    std::to_string(*auth_result.user_id))
+                              : std::nullopt,
+              .target_type = "service",
+              .target_id = auth_request.service_name,
+              .service_name = auth_request.service_name,
+              .access_level = auth_result.access_level,
+              .client_ip = auth_request.client_ip,
+              .request_id = request_id,
+              .result = auth_result.decision ==
                                 roche_limit::auth_core::LoginDecision::Allow
-                            ? "session_auth_allow"
-                            : "session_auth_deny",
-          .actor_type = auth_result.user_id.has_value() ? "user" : "ip",
-          .actor_id = auth_result.user_id.has_value()
-                          ? std::optional<std::string>(
-                                std::to_string(*auth_result.user_id))
-                          : std::nullopt,
-          .target_type = "service",
-          .target_id = auth_request.service_name,
-          .service_name = auth_request.service_name,
-          .access_level = auth_result.access_level,
-          .client_ip = auth_request.client_ip,
-          .request_id = request_id,
-          .result = auth_result.decision ==
-                            roche_limit::auth_core::LoginDecision::Allow
-                        ? "allow"
-                        : "deny",
-          .reason = auth_result.reason,
-      });
+                            ? "allow"
+                            : "deny",
+              .reason = auth_result.reason,
+          },
+          "session_auth_result");
     }
     callback(response);
   } catch (const std::exception &ex) {
@@ -210,13 +235,16 @@ void handle_logout(
     clear_session_cookie(response);
     record_auth_request("logout", "allow",
                         roche_limit::auth_core::auth_reason::Logout);
-    audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
-        .event_type = "logout",
-        .actor_type = "session",
-        .request_id = request_id,
-        .result = "success",
-        .reason = roche_limit::auth_core::auth_reason::Logout,
-    });
+    try_insert_audit_event(
+        audit_repository,
+        roche_limit::auth_store::NewAuditEvent{
+            .event_type = "logout",
+            .actor_type = "session",
+            .request_id = request_id,
+            .result = "success",
+            .reason = roche_limit::auth_core::auth_reason::Logout,
+        },
+        "logout");
     callback(response);
   } catch (const std::exception &ex) {
     LOG_ERROR << "logout handler failed request_id=" << request_id << ": "

@@ -67,9 +67,9 @@ std::string api_key_lookup_hash(std::string_view api_key) {
   return hex;
 }
 
-bool verify_api_key(std::string_view api_key, std::string_view api_key_hash) {
+bool verify_api_key(std::string_view api_key, const std::string &api_key_hash) {
   ensure_sodium_initialized();
-  return crypto_pwhash_str_verify(api_key_hash.data(), api_key.data(),
+  return crypto_pwhash_str_verify(api_key_hash.c_str(), api_key.data(),
                                   api_key.size()) == 0;
 }
 
