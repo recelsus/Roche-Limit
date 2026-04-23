@@ -12,6 +12,7 @@ namespace {
 
 constexpr unsigned long long kArgonOpsLimit = 2;
 constexpr std::size_t kArgonMemLimit = 19456ULL * 1024ULL;
+constexpr std::string_view kArgon2IdPrefix = "$argon2id$";
 
 void ensure_sodium_initialized() {
   static const bool initialized = [] { return sodium_init() >= 0; }();
@@ -28,6 +29,10 @@ std::string require_api_key_pepper() {
         "ROCHE_LIMIT_API_KEY_PEPPER is required for API key operations");
   }
   return value;
+}
+
+bool looks_like_argon2id_hash(std::string_view hash) {
+  return hash.rfind(kArgon2IdPrefix, 0) == 0;
 }
 
 } // namespace
@@ -68,6 +73,9 @@ std::string api_key_lookup_hash(std::string_view api_key) {
 }
 
 bool verify_api_key(std::string_view api_key, const std::string &api_key_hash) {
+  if (!looks_like_argon2id_hash(api_key_hash)) {
+    return false;
+  }
   ensure_sodium_initialized();
   return crypto_pwhash_str_verify(api_key_hash.c_str(), api_key.data(),
                                   api_key.size()) == 0;

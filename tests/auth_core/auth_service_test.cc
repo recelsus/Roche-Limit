@@ -188,6 +188,41 @@ void test_unknown_ip_with_api_key_elevation() {
          "api key id should be returned");
 }
 
+void test_legacy_api_key_hash_is_rejected_without_crash() {
+  FakeRepository repository;
+  repository.api_keys = {
+      ApiKeyRecord{
+          .id = 7,
+          .key_hash = "e37b1715cf8ede5c492d4838b4946c03023130aeeaae566d289d94a7"
+                      "920d7a6d",
+          .key_lookup_hash =
+              roche_limit::auth_core::api_key_lookup_hash("legacy-key"),
+          .key_prefix = std::nullopt,
+          .service_name = std::string("test"),
+          .access_level = 90,
+          .enabled = true,
+          .expires_at = std::nullopt,
+          .note = std::nullopt,
+          .created_at = "",
+          .updated_at = "",
+      },
+  };
+  AuthService service(repository);
+
+  const AuthResult result = service.authorize(RequestContext{
+      .client_ip = "198.51.100.20",
+      .service_name = "test",
+      .api_key = std::string("legacy-key"),
+  });
+
+  expect(result.decision == AuthDecision::Allow,
+         "unknown ip should still use fallback allow level");
+  expect(result.access_level == 10,
+         "legacy api key hash should not elevate access");
+  expect(!result.api_key_record_id.has_value(),
+         "legacy api key hash should not match");
+}
+
 void test_allow_ip_service_override_fallback() {
   FakeRepository repository;
   repository.allow_rules = {
@@ -307,6 +342,7 @@ int main() {
   test_access_level_value_object_boundaries();
   test_ip_deny_wins();
   test_unknown_ip_with_api_key_elevation();
+  test_legacy_api_key_hash_is_rejected_without_crash();
   test_allow_ip_service_override_fallback();
   test_allow_ip_without_service_level_defaults_to_60();
   test_required_access_level_denies_when_below_threshold();

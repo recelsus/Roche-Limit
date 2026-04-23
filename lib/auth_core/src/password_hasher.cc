@@ -11,6 +11,7 @@ namespace {
 
 constexpr unsigned long long kArgonOpsLimit = 2;
 constexpr std::size_t kArgonMemLimit = 19456ULL * 1024ULL;
+constexpr std::string_view kArgon2IdPrefix = "$argon2id$";
 
 void ensure_sodium_initialized() {
   static const bool initialized = [] { return sodium_init() >= 0; }();
@@ -18,6 +19,10 @@ void ensure_sodium_initialized() {
   if (!initialized) {
     throw std::runtime_error("failed to initialize libsodium");
   }
+}
+
+bool looks_like_argon2id_hash(std::string_view hash) {
+  return hash.rfind(kArgon2IdPrefix, 0) == 0;
 }
 
 } // namespace
@@ -39,6 +44,9 @@ std::string hash_password(std::string_view password) {
 
 bool verify_password(std::string_view password,
                      const std::string &password_hash) {
+  if (!looks_like_argon2id_hash(password_hash)) {
+    return false;
+  }
   ensure_sodium_initialized();
   return crypto_pwhash_str_verify(password_hash.c_str(), password.data(),
                                   password.size()) == 0;
