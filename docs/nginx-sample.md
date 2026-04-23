@@ -3,6 +3,8 @@
 `Roche-Limit` を nginx の `auth_request` と組み合わせて使うためのサンプルです。  
 ここでは `roche-limit` は内部 network 上に存在し、外部公開しない前提です。
 
+`/auth` と `/session/auth` は nginx `auth_request` 用の endpoint なので `GET` のみ受け付けます。
+
 ```nginx
 upstream roche_limit_auth {
     server roche-limit:8080;

@@ -185,14 +185,14 @@ void register_login_routes(std::shared_ptr<const roche_limit::auth_core::LoginSe
                         std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
             handle_session_auth(login_service, request, std::move(callback));
         },
-        {drogon::Get, drogon::Post});
+        {drogon::Get});
     drogon::app().registerHandler(
         "/session/auth/",
         [login_service](const drogon::HttpRequestPtr& request,
                         std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
             handle_session_auth(login_service, request, std::move(callback));
         },
-        {drogon::Get, drogon::Post});
+        {drogon::Get});
 
     drogon::app().registerHandler(
         "/logout",

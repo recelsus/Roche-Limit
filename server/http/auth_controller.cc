@@ -97,11 +97,11 @@ void register_auth_routes(std::shared_ptr<const roche_limit::auth_core::AuthServ
     drogon::app().registerHandler(
         "/auth",
         handler,
-        {drogon::Get, drogon::Post, drogon::Put, drogon::Delete, drogon::Patch, drogon::Options});
+        {drogon::Get});
     drogon::app().registerHandler(
         "/auth/",
         handler,
-        {drogon::Get, drogon::Post, drogon::Put, drogon::Delete, drogon::Patch, drogon::Options});
+        {drogon::Get});
 }
 
 }  // namespace roche_limit::server::http

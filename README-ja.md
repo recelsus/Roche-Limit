@@ -22,15 +22,15 @@ nginxの`auth_request`を前提の認証専用サーバー。
 - `/`
   疎通確認用
 - `/auth`
-  IP / APIキー用の認証判定
+  IP / APIキー用の認証判定。`GET` のみ。
 - `/login`
-  ログイン画面 / ログイン処理
+  ログイン画面 / ログイン処理。`GET` は画面表示、`POST` は credential 送信。
 - `/logout`
-  ログアウト処理
+  ログアウト処理。`POST` のみ。
 - `/session/auth`
-  Cookie session 用の認証判定
+  Cookie session 用の認証判定。`GET` のみ。
 - `/metrics`
-  Prometheus text 形式のメトリクス
+  Prometheus text 形式のメトリクス。`GET` のみ。
 
 これらは nginx からの内部利用を前提とした構成です。
 `/metrics` は内部 network に留めるか、nginx 側で保護してください。

@@ -2,9 +2,13 @@ find_package(SQLite3 REQUIRED)
 
 add_library(roche_limit_auth_store
     src/rule_repository.cc
+    src/rule_repository_api_key.cc
+    src/rule_repository_compact.cc
     src/schema_bootstrap.cc
     src/sqlite_connection.cc
     src/user_repository.cc
+    src/user_repository_compact.cc
+    src/user_repository_session.cc
 )
 
 target_include_directories(roche_limit_auth_store

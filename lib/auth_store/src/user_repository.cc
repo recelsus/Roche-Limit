@@ -1,6 +1,7 @@
 #include "auth_store/user_repository.h"
 
 #include "auth_store/sqlite_connection.h"
+#include "sqlite_statement.h"
 
 #include <sqlite3.h>
 
@@ -16,101 +17,9 @@ namespace {
 using roche_limit::auth_core::UserCredentialRecord;
 using roche_limit::auth_core::UserRecord;
 using roche_limit::auth_core::UserServiceLevelRecord;
-using roche_limit::auth_core::UserSessionRecord;
 using roche_limit::auth_store::NewUserRecord;
 using roche_limit::auth_store::NewUserServiceLevel;
 using roche_limit::auth_store::UpdateUserRecord;
-
-class Statement final {
-public:
-    Statement(sqlite3* db, const char* sql) : db_(db) {
-        if (sqlite3_prepare_v2(db_, sql, -1, &statement_, nullptr) != SQLITE_OK) {
-            throw std::runtime_error(std::string("failed to prepare sqlite statement: ") +
-                                     sqlite3_errmsg(db_));
-        }
-    }
-
-    ~Statement() {
-        if (statement_ != nullptr) {
-            sqlite3_finalize(statement_);
-        }
-    }
-
-    sqlite3_stmt* get() const noexcept {
-        return statement_;
-    }
-
-private:
-    sqlite3* db_{nullptr};
-    sqlite3_stmt* statement_{nullptr};
-};
-
-void bind_text(sqlite3_stmt* statement, int index, std::string_view value) {
-    if (sqlite3_bind_text(statement,
-                          index,
-                          value.data(),
-                          static_cast<int>(value.size()),
-                          SQLITE_TRANSIENT) != SQLITE_OK) {
-        throw std::runtime_error("failed to bind sqlite text parameter");
-    }
-}
-
-void bind_int64(sqlite3_stmt* statement, int index, std::int64_t value) {
-    if (sqlite3_bind_int64(statement, index, value) != SQLITE_OK) {
-        throw std::runtime_error("failed to bind sqlite integer parameter");
-    }
-}
-
-std::optional<std::string> nullable_text(sqlite3_stmt* statement, int column) {
-    if (sqlite3_column_type(statement, column) == SQLITE_NULL) {
-        return std::nullopt;
-    }
-    const auto* text = reinterpret_cast<const char*>(sqlite3_column_text(statement, column));
-    return text != nullptr ? std::optional<std::string>(text) : std::nullopt;
-}
-
-void exec_sql(sqlite3* db, const char* sql, const char* message) {
-    char* error_message = nullptr;
-    const auto result = sqlite3_exec(db, sql, nullptr, nullptr, &error_message);
-    if (result != SQLITE_OK) {
-        std::string full_message = message;
-        if (error_message != nullptr) {
-            full_message += ": ";
-            full_message += error_message;
-            sqlite3_free(error_message);
-        }
-        throw std::runtime_error(full_message);
-    }
-}
-
-std::vector<std::int64_t> select_ids(sqlite3* db, const char* sql, const char* message) {
-    Statement statement(db, sql);
-    std::vector<std::int64_t> ids;
-    while (true) {
-        const auto step_result = sqlite3_step(statement.get());
-        if (step_result == SQLITE_DONE) {
-            break;
-        }
-        if (step_result != SQLITE_ROW) {
-            throw std::runtime_error(message);
-        }
-        ids.push_back(sqlite3_column_int64(statement.get(), 0));
-    }
-    return ids;
-}
-
-void update_single_id(sqlite3* db,
-                      const char* sql,
-                      std::int64_t old_id,
-                      std::int64_t new_id,
-                      const char* message) {
-    Statement statement(db, sql);
-    bind_int64(statement.get(), 1, new_id);
-    bind_int64(statement.get(), 2, old_id);
-    if (sqlite3_step(statement.get()) != SQLITE_DONE) {
-        throw std::runtime_error(message);
-    }
-}
 
 UserRecord read_user(sqlite3_stmt* statement) {
     const auto* username = reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
@@ -154,43 +63,6 @@ UserServiceLevelRecord read_user_service_level(sqlite3_stmt* statement) {
         .created_at = created_at != nullptr ? created_at : "",
         .updated_at = updated_at != nullptr ? updated_at : "",
     };
-}
-
-UserSessionRecord read_user_session(sqlite3_stmt* statement) {
-    const auto* session_token_hash = reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
-    const auto* expires_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 3));
-    const auto* last_seen_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 4));
-    const auto* created_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 6));
-    const auto* updated_at = reinterpret_cast<const char*>(sqlite3_column_text(statement, 7));
-    return UserSessionRecord{
-        .id = sqlite3_column_int64(statement, 0),
-        .session_token_hash = session_token_hash != nullptr ? session_token_hash : "",
-        .user_id = sqlite3_column_int64(statement, 2),
-        .expires_at = expires_at != nullptr ? expires_at : "",
-        .last_seen_at = last_seen_at != nullptr ? last_seen_at : "",
-        .revoked_at = nullable_text(statement, 5),
-        .created_at = created_at != nullptr ? created_at : "",
-        .updated_at = updated_at != nullptr ? updated_at : "",
-    };
-}
-
-template <typename T, typename Reader, typename Binder>
-std::optional<T> find_one(const std::filesystem::path& database_path,
-                          const char* sql,
-                          Binder binder,
-                          Reader reader,
-                          const char* error_message) {
-    SqliteConnection connection(database_path);
-    Statement statement(connection.handle(), sql);
-    binder(statement.get());
-    const auto step_result = sqlite3_step(statement.get());
-    if (step_result == SQLITE_DONE) {
-        return std::nullopt;
-    }
-    if (step_result != SQLITE_ROW) {
-        throw std::runtime_error(error_message);
-    }
-    return reader(statement.get());
 }
 
 }  // namespace
@@ -309,73 +181,6 @@ LIMIT 1;
         "failed to find user service level");
 }
 
-std::optional<UserSessionRecord> UserRepository::find_active_user_session(
-    std::string_view session_token_hash) const {
-    static constexpr auto kSql = R"SQL(
-SELECT id, session_token_hash, user_id, expires_at, last_seen_at, revoked_at, created_at, updated_at
-FROM user_sessions
-WHERE session_token_hash = ?1
-  AND revoked_at IS NULL
-  AND expires_at > CURRENT_TIMESTAMP
-LIMIT 1;
-)SQL";
-    return find_one<UserSessionRecord>(
-        database_path_,
-        kSql,
-        [&](sqlite3_stmt* statement) { bind_text(statement, 1, session_token_hash); },
-        read_user_session,
-        "failed to find active user session");
-}
-
-std::int64_t UserRepository::insert_user_session(std::int64_t user_id,
-                                                 std::string_view session_token_hash,
-                                                 std::string_view expires_at) const {
-    static constexpr auto kSql = R"SQL(
-INSERT INTO user_sessions (session_token_hash, user_id, expires_at)
-VALUES (?1, ?2, ?3);
-)SQL";
-    SqliteConnection connection(database_path_);
-    Statement statement(connection.handle(), kSql);
-    bind_text(statement.get(), 1, session_token_hash);
-    bind_int64(statement.get(), 2, user_id);
-    bind_text(statement.get(), 3, expires_at);
-    if (sqlite3_step(statement.get()) != SQLITE_DONE) {
-        throw std::runtime_error("failed to insert user session");
-    }
-    return sqlite3_last_insert_rowid(connection.handle());
-}
-
-void UserRepository::update_user_session_last_seen(std::int64_t session_id) const {
-    static constexpr auto kSql = R"SQL(
-UPDATE user_sessions
-SET last_seen_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP
-WHERE id = ?1;
-)SQL";
-    SqliteConnection connection(database_path_);
-    Statement statement(connection.handle(), kSql);
-    bind_int64(statement.get(), 1, session_id);
-    if (sqlite3_step(statement.get()) != SQLITE_DONE) {
-        throw std::runtime_error("failed to update user session last_seen_at");
-    }
-}
-
-void UserRepository::revoke_user_session(std::string_view session_token_hash) const {
-    static constexpr auto kSql = R"SQL(
-UPDATE user_sessions
-SET revoked_at = CURRENT_TIMESTAMP,
-    updated_at = CURRENT_TIMESTAMP
-WHERE session_token_hash = ?1
-  AND revoked_at IS NULL;
-)SQL";
-    SqliteConnection connection(database_path_);
-    Statement statement(connection.handle(), kSql);
-    bind_text(statement.get(), 1, session_token_hash);
-    if (sqlite3_step(statement.get()) != SQLITE_DONE) {
-        throw std::runtime_error("failed to revoke user session");
-    }
-}
-
 std::int64_t UserRepository::insert_user(const NewUserRecord& new_user_record) const {
     static constexpr auto kSql = R"SQL(
 INSERT INTO users (username, note)
@@ -448,119 +253,6 @@ WHERE id = ?1;
     if (sqlite3_step(statement.get()) != SQLITE_DONE) {
         throw std::runtime_error("failed to delete user");
     }
-}
-
-void UserRepository::compact_user_ids() const {
-    static constexpr auto kSelectUserIdsSql = "SELECT id FROM users ORDER BY id ASC;";
-    static constexpr auto kSelectUserServiceLevelIdsSql =
-        "SELECT id FROM user_service_levels ORDER BY id ASC;";
-    static constexpr auto kSelectUserSessionIdsSql =
-        "SELECT id FROM user_sessions ORDER BY id ASC;";
-    static constexpr auto kUpdateUserIdSql = "UPDATE users SET id = ?1 WHERE id = ?2;";
-    static constexpr auto kUpdateCredentialUserIdSql =
-        "UPDATE user_credentials SET user_id = ?1 WHERE user_id = ?2;";
-    static constexpr auto kUpdateServiceLevelUserIdSql =
-        "UPDATE user_service_levels SET user_id = ?1 WHERE user_id = ?2;";
-    static constexpr auto kUpdateSessionUserIdSql =
-        "UPDATE user_sessions SET user_id = ?1 WHERE user_id = ?2;";
-    static constexpr auto kUpdateUserServiceLevelIdSql =
-        "UPDATE user_service_levels SET id = ?1 WHERE id = ?2;";
-    static constexpr auto kUpdateUserSessionIdSql =
-        "UPDATE user_sessions SET id = ?1 WHERE id = ?2;";
-
-    SqliteConnection connection(database_path_);
-    auto* db = connection.handle();
-    exec_sql(db, "PRAGMA foreign_keys = OFF;", "failed to disable foreign keys");
-    exec_sql(db, "BEGIN IMMEDIATE;", "failed to begin transaction");
-    try {
-        const auto user_ids = select_ids(db, kSelectUserIdsSql, "failed to load user ids");
-        for (std::size_t index = 0; index < user_ids.size(); ++index) {
-            const auto temp_id = -static_cast<std::int64_t>(index + 1);
-            update_single_id(db,
-                             kUpdateCredentialUserIdSql,
-                             user_ids[index],
-                             temp_id,
-                             "failed to move user credential references");
-            update_single_id(db,
-                             kUpdateServiceLevelUserIdSql,
-                             user_ids[index],
-                             temp_id,
-                             "failed to move user service level references");
-            update_single_id(db,
-                             kUpdateSessionUserIdSql,
-                             user_ids[index],
-                             temp_id,
-                             "failed to move user session references");
-            update_single_id(db, kUpdateUserIdSql, user_ids[index], temp_id, "failed to move user id");
-        }
-        for (std::size_t index = 0; index < user_ids.size(); ++index) {
-            const auto temp_id = -static_cast<std::int64_t>(index + 1);
-            const auto new_id = static_cast<std::int64_t>(index + 1);
-            update_single_id(db,
-                             kUpdateCredentialUserIdSql,
-                             temp_id,
-                             new_id,
-                             "failed to restore user credential references");
-            update_single_id(db,
-                             kUpdateServiceLevelUserIdSql,
-                             temp_id,
-                             new_id,
-                             "failed to restore user service level references");
-            update_single_id(db,
-                             kUpdateSessionUserIdSql,
-                             temp_id,
-                             new_id,
-                             "failed to restore user session references");
-            update_single_id(db, kUpdateUserIdSql, temp_id, new_id, "failed to restore user id");
-        }
-
-        const auto service_level_ids = select_ids(
-            db, kSelectUserServiceLevelIdsSql, "failed to load user service level ids");
-        for (std::size_t index = 0; index < service_level_ids.size(); ++index) {
-            const auto temp_id = -static_cast<std::int64_t>(index + 1);
-            update_single_id(db,
-                             kUpdateUserServiceLevelIdSql,
-                             service_level_ids[index],
-                             temp_id,
-                             "failed to move user service level id");
-        }
-        for (std::size_t index = 0; index < service_level_ids.size(); ++index) {
-            const auto temp_id = -static_cast<std::int64_t>(index + 1);
-            const auto new_id = static_cast<std::int64_t>(index + 1);
-            update_single_id(db,
-                             kUpdateUserServiceLevelIdSql,
-                             temp_id,
-                             new_id,
-                             "failed to restore user service level id");
-        }
-
-        const auto session_ids =
-            select_ids(db, kSelectUserSessionIdsSql, "failed to load user session ids");
-        for (std::size_t index = 0; index < session_ids.size(); ++index) {
-            const auto temp_id = -static_cast<std::int64_t>(index + 1);
-            update_single_id(db,
-                             kUpdateUserSessionIdSql,
-                             session_ids[index],
-                             temp_id,
-                             "failed to move user session id");
-        }
-        for (std::size_t index = 0; index < session_ids.size(); ++index) {
-            const auto temp_id = -static_cast<std::int64_t>(index + 1);
-            const auto new_id = static_cast<std::int64_t>(index + 1);
-            update_single_id(db,
-                             kUpdateUserSessionIdSql,
-                             temp_id,
-                             new_id,
-                             "failed to restore user session id");
-        }
-
-        exec_sql(db, "COMMIT;", "failed to commit transaction");
-    } catch (...) {
-        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
-        sqlite3_exec(db, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr);
-        throw;
-    }
-    exec_sql(db, "PRAGMA foreign_keys = ON;", "failed to re-enable foreign keys");
 }
 
 void UserRepository::upsert_user_credential(std::int64_t user_id, std::string_view password_hash) const {
