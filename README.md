@@ -22,15 +22,15 @@ A dedicated authorisation server designed around nginx `auth_request`.
 - `/`
   Basic reachability check
 - `/auth`
-  IP / API key authorisation
+  IP / API key authorisation. `GET` only.
 - `/login`
-  Login page and login submit
+  Login page and login submit. `GET` renders the page, `POST` submits credentials.
 - `/logout`
-  Logout endpoint
+  Logout endpoint. `POST` only.
 - `/session/auth`
-  Cookie session authorisation
+  Cookie session authorisation. `GET` only.
 - `/metrics`
-  Prometheus text metrics
+  Prometheus text metrics. `GET` only.
 
 These endpoints are intended to be used behind nginx.
 Keep `/metrics` on an internal network or protect it at nginx.
