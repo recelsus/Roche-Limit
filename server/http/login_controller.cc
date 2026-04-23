@@ -18,6 +18,10 @@ namespace roche_limit::server::http {
 
 namespace {
 
+std::shared_ptr<const roche_limit::auth_core::LoginService> g_login_service;
+std::shared_ptr<const roche_limit::auth_store::AuditRepository>
+    g_login_audit_repository;
+
 drogon::HttpResponsePtr
 make_basic_response(drogon::HttpStatusCode status_code) {
   auto response = drogon::HttpResponse::newHttpResponse();
@@ -263,6 +267,9 @@ void register_login_routes(
     std::shared_ptr<const roche_limit::auth_core::LoginService> login_service,
     std::shared_ptr<const roche_limit::auth_store::AuditRepository>
         audit_repository) {
+  g_login_service = std::move(login_service);
+  g_login_audit_repository = std::move(audit_repository);
+
   drogon::app().registerHandler(
       "/login",
       [](const drogon::HttpRequestPtr &,
@@ -288,57 +295,51 @@ void register_login_routes(
 
   drogon::app().registerHandler(
       "/login",
-      [login_service, audit_repository](
-          const drogon::HttpRequestPtr &request,
-          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        handle_login(login_service, audit_repository, request,
+      [](const drogon::HttpRequestPtr &request,
+         std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+        handle_login(g_login_service, g_login_audit_repository, request,
                      std::move(callback));
       },
       {drogon::Post});
   drogon::app().registerHandler(
       "/login/",
-      [login_service, audit_repository](
-          const drogon::HttpRequestPtr &request,
-          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        handle_login(login_service, audit_repository, request,
+      [](const drogon::HttpRequestPtr &request,
+         std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+        handle_login(g_login_service, g_login_audit_repository, request,
                      std::move(callback));
       },
       {drogon::Post});
 
   drogon::app().registerHandler(
       "/session/auth",
-      [login_service, audit_repository](
-          const drogon::HttpRequestPtr &request,
-          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        handle_session_auth(login_service, audit_repository, request,
+      [](const drogon::HttpRequestPtr &request,
+         std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+        handle_session_auth(g_login_service, g_login_audit_repository, request,
                             std::move(callback));
       },
       {drogon::Get});
   drogon::app().registerHandler(
       "/session/auth/",
-      [login_service, audit_repository](
-          const drogon::HttpRequestPtr &request,
-          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        handle_session_auth(login_service, audit_repository, request,
+      [](const drogon::HttpRequestPtr &request,
+         std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+        handle_session_auth(g_login_service, g_login_audit_repository, request,
                             std::move(callback));
       },
       {drogon::Get});
 
   drogon::app().registerHandler(
       "/logout",
-      [login_service, audit_repository](
-          const drogon::HttpRequestPtr &request,
-          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        handle_logout(login_service, audit_repository, request,
+      [](const drogon::HttpRequestPtr &request,
+         std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+        handle_logout(g_login_service, g_login_audit_repository, request,
                       std::move(callback));
       },
       {drogon::Post});
   drogon::app().registerHandler(
       "/logout/",
-      [login_service, audit_repository](
-          const drogon::HttpRequestPtr &request,
-          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        handle_logout(login_service, audit_repository, request,
+      [](const drogon::HttpRequestPtr &request,
+         std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+        handle_logout(g_login_service, g_login_audit_repository, request,
                       std::move(callback));
       },
       {drogon::Post});

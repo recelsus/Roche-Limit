@@ -14,6 +14,10 @@ namespace roche_limit::server::http {
 
 namespace {
 
+std::shared_ptr<const roche_limit::auth_core::AuthService> g_auth_service;
+std::shared_ptr<const roche_limit::auth_store::AuditRepository>
+    g_auth_audit_repository;
+
 drogon::HttpStatusCode
 status_from_result(const roche_limit::auth_core::AuthResult &auth_result) {
   return auth_result.decision == roche_limit::auth_core::AuthDecision::Allow
@@ -41,19 +45,20 @@ void register_auth_routes(
     std::shared_ptr<const roche_limit::auth_core::AuthService> auth_service,
     std::shared_ptr<const roche_limit::auth_store::AuditRepository>
         audit_repository) {
-  auto handler = [auth_service = std::move(auth_service),
-                  audit_repository = std::move(audit_repository)](
-                     const drogon::HttpRequestPtr &request,
-                     std::function<void(const drogon::HttpResponsePtr &)>
-                         &&callback) {
+  g_auth_service = std::move(auth_service);
+  g_auth_audit_repository = std::move(audit_repository);
+
+  auto handler = [](const drogon::HttpRequestPtr &request,
+                    std::function<void(const drogon::HttpResponsePtr &)>
+                        &&callback) {
     const auto request_id = next_request_id();
     try {
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth handler auth_service="
-                 << static_cast<const void *>(auth_service.get())
+                 << static_cast<const void *>(g_auth_service.get())
                  << " repository="
                  << static_cast<const void *>(
-                        auth_service->repository_address());
+                        g_auth_service->repository_address());
       }
       const auto request_context = build_request_context(request);
       if (roche_limit::common::verbose_logging_enabled()) {
@@ -76,7 +81,7 @@ void register_auth_routes(
             "auth", "deny",
             roche_limit::auth_core::auth_reason::MissingService);
         try_insert_audit_event(
-            audit_repository,
+            g_auth_audit_repository,
             roche_limit::auth_store::NewAuditEvent{
                 .event_type = "auth_deny",
                 .actor_type = "unknown",
@@ -94,7 +99,7 @@ void register_auth_routes(
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth request authorize begin";
       }
-      const auto auth_result = auth_service->authorize(request_context);
+      const auto auth_result = g_auth_service->authorize(request_context);
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth request id=" << request_id
                  << " authorize done decision="
@@ -136,7 +141,7 @@ void register_auth_routes(
       if (auth_result.decision == roche_limit::auth_core::AuthDecision::Deny ||
           audit_allow) {
         try_insert_audit_event(
-            audit_repository,
+            g_auth_audit_repository,
             roche_limit::auth_store::NewAuditEvent{
                 .event_type =
                     auth_result.decision ==
@@ -178,7 +183,7 @@ void register_auth_routes(
       record_auth_request("auth", "error",
                           roche_limit::auth_core::auth_reason::InternalError);
       try_insert_audit_event(
-          audit_repository,
+          g_auth_audit_repository,
           roche_limit::auth_store::NewAuditEvent{
               .event_type = "auth_error",
               .actor_type = "unknown",
