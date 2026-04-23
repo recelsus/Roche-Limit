@@ -48,6 +48,13 @@ void register_auth_routes(
                          &&callback) {
     const auto request_id = next_request_id();
     try {
+      if (roche_limit::common::verbose_logging_enabled()) {
+        LOG_INFO << "auth handler auth_service="
+                 << static_cast<const void *>(auth_service.get())
+                 << " repository="
+                 << static_cast<const void *>(
+                        auth_service->repository_address());
+      }
       const auto request_context = build_request_context(request);
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth request id=" << request_id

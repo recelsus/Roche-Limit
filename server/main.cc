@@ -51,11 +51,17 @@ int main(int argc, char *argv[]) {
                                                                : "disabled")
             << std::endl;
   if (roche_limit::common::verbose_logging_enabled()) {
+    std::cout << "AuthService object: "
+              << static_cast<const void *>(auth_service.get()) << std::endl;
     std::cout << "Repository address: "
               << static_cast<const void *>(repository.get()) << std::endl;
     std::cout << "AuthService repository address: "
               << static_cast<const void *>(auth_service->repository_address())
               << std::endl;
+    std::cout << "LoginService object: "
+              << static_cast<const void *>(login_service.get()) << std::endl;
+    std::cout << "UserRepository address: "
+              << static_cast<const void *>(user_repository.get()) << std::endl;
   }
 
   roche_limit::server::http::register_root_routes();

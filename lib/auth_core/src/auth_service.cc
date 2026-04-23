@@ -13,7 +13,14 @@
 namespace roche_limit::auth_core {
 
 AuthService::AuthService(std::shared_ptr<const AuthRepository> repository)
-    : repository_(std::move(repository)) {}
+    : repository_(std::move(repository)) {
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[auth_core] AuthService constructed this="
+              << static_cast<const void *>(this)
+              << " repository=" << static_cast<const void *>(repository_.get())
+              << std::endl;
+  }
+}
 
 const AuthRepository *AuthService::repository_address() const noexcept {
   return repository_.get();
@@ -22,7 +29,8 @@ const AuthRepository *AuthService::repository_address() const noexcept {
 AuthResult AuthService::authorize(const RequestContext &request_context) const {
   if (roche_limit::common::verbose_logging_enabled()) {
     std::ostringstream stream;
-    stream << "authorize start service=" << request_context.service_name
+    stream << "authorize start this=" << static_cast<const void *>(this)
+           << " service=" << request_context.service_name
            << " client_ip=" << request_context.client_ip << " api_key_present="
            << (request_context.api_key.has_value() ? "yes" : "no")
            << " repository=" << static_cast<const void *>(repository_.get());

@@ -4,6 +4,7 @@
 #include "auth_core/auth_reason.h"
 #include "auth_core/ip_rule_matcher.h"
 #include "auth_core/password_hasher.h"
+#include "common/debug_log.h"
 #include "common/hash_util.h"
 
 #include <sodium.h>
@@ -12,6 +13,7 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -107,7 +109,16 @@ LoginService::LoginService(
     std::shared_ptr<const AuthRepository> auth_repository,
     std::shared_ptr<const LoginRepository> login_repository)
     : auth_repository_(std::move(auth_repository)),
-      login_repository_(std::move(login_repository)) {}
+      login_repository_(std::move(login_repository)) {
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[login_core] LoginService constructed this="
+              << static_cast<const void *>(this) << " auth_repository="
+              << static_cast<const void *>(auth_repository_.get())
+              << " login_repository="
+              << static_cast<const void *>(login_repository_.get())
+              << std::endl;
+  }
+}
 
 LoginResult LoginService::login(const LoginRequest &request) const {
   if (!is_valid_ip_address(request.client_ip)) {
