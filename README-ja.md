@@ -49,14 +49,27 @@ nginxの`auth_request`を前提の認証専用サーバー。
 ## Rules
 
 アクセスレベルは0(ブロック)と1-99を想定, 推奨は(0, 10, 30, 60, 90)  
-未登録IPは30, 共通allowは60を基準とします
+未登録IPは10, 共通allowは60を基準とします
 
 - 共通 `IP deny` は最優先で拒否
 - 共通 `IP allow` は `60` を付与
-- 未登録のIP は `30` を付与
+- 未登録のIP は既定で `10` を付与
 - サービス別overrideがあればそれを適用
 - APIキーがあればアクセスレベルを再評価
 - 最終的なアクセスレベルをnginxへ返す
+
+## Configuration
+
+- `ROCHE_LIMIT_API_KEY_PEPPER`
+  起動時に必須。APIキー作成・検証にも使うため、長いランダム値を設定してください。
+- `ROCHE_LIMIT_UNKNOWN_IP_LEVEL`
+  未登録IPの既定アクセスレベル。未設定時は `10`。
+- `ROCHE_LIMIT_AUDIT_AUTH_ALLOW`
+  `1` のときのみ `/auth` / `/session/auth` の allow event も監査ログへ記録。未設定時は deny / error / login / logout 系のみを記録。
+- `ROCHE_LIMIT_AUDIT_RETENTION_DAYS`
+  監査ログ保持日数の想定値。未設定時は運用側の cleanup 実行方針に従います。
+- `ROCHE_LIMIT_AUDIT_MAX_ROWS`
+  監査ログの最大行数の想定値。小規模運用の基準は `10000`。
 
 ## 必要なヘッダ
 
@@ -132,6 +145,12 @@ Session cookie は環境変数で変更できます。
 ## DB Migration
 
 新規 DB は [`schema/init.sql`](./schema/init.sql) から作成します。既存 DB の更新方針は [`docs/migration.md`](./docs/migration.md) を参照してください。
+
+## Licence
+
+Roche-Limit は MIT License です。詳細は [`LICENSE`](./LICENSE) を参照してください。
+
+第三者ライブラリの notice は [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) に記載しています。
 
 ## Nginx Config Sample
 

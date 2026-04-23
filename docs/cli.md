@@ -37,8 +37,9 @@ roche_limit_cli key remove <api-key-id>
 - `--service` 省略時は全サービス共通
 - `--service *` でも全サービス共通を指定できる
 - `key gen` は生成した平文キーを1回だけ表示する
-- DBには平文キーを保存せず、`key_hash` と `key_prefix` のみを保存する
-- `key list` は平文ではなく prefix と hash を表示する
+- APIキー作成・検証には `ROCHE_LIMIT_API_KEY_PEPPER` が必須
+- DBには平文キーを保存せず、Argon2id verifier, peppered lookup hash, prefix のみを保存する
+- `key list` は平文キーや verifier を表示せず、prefix のみを表示する
 
 ### User
 

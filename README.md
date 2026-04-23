@@ -50,14 +50,27 @@ Auth-related responses include `X-Request-Id` so nginx logs and Roche-Limit logs
 
 Access levels assume `0` for blocked and `1-99` for allowed levels.  
 Recommended values are `0`, `10`, `30`, `60`, and `90`.  
-Unknown IPs default to `30`.
+Unknown IPs default to `10`.
 
 - Shared `IP deny` rules reject first
 - Shared `IP allow` rules grant `60`
-- Unregistered IP addresses receive `30`
+- Unregistered IP addresses receive `10` by default
 - Service-specific overrides are applied when present
 - API keys may raise the access level
 - The final access level is returned to nginx
+
+## Configuration
+
+- `ROCHE_LIMIT_API_KEY_PEPPER`
+  Required at startup and used for API key creation and verification. Set a long random value.
+- `ROCHE_LIMIT_UNKNOWN_IP_LEVEL`
+  Default access level for unknown IPs. Defaults to `10`.
+- `ROCHE_LIMIT_AUDIT_AUTH_ALLOW`
+  When set to `1`, `/auth` and `/session/auth` allow events are also written to the audit log. By default only deny, error, login, and logout style events are recorded.
+- `ROCHE_LIMIT_AUDIT_RETENTION_DAYS`
+  Intended audit retention window. When unset, retention depends on the cleanup policy you run.
+- `ROCHE_LIMIT_AUDIT_MAX_ROWS`
+  Intended audit row cap. The small-deployment baseline is `10000`.
 
 ## Required Headers
 
@@ -133,6 +146,12 @@ See [`docs/cli.md`](./docs/cli.md) for details.
 ## DB Migration
 
 New databases are created from [`schema/init.sql`](./schema/init.sql). See [`docs/migration.md`](./docs/migration.md) for the existing database upgrade policy.
+
+## Licence
+
+Roche-Limit is licensed under the MIT License. See [`LICENSE`](./LICENSE).
+
+Third-party dependency notices are listed in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
 
 ## Nginx Config Sample
 
