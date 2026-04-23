@@ -11,6 +11,7 @@
 #include "auth_store/user_repository.h"
 #include "common/debug_log.h"
 #include "config/app_config.h"
+#include "crash_handler.h"
 #include "http/auth_controller.h"
 #include "http/login_controller.h"
 #include "http/metrics_controller.h"
@@ -18,6 +19,8 @@
 
 int main(int argc, char *argv[]) {
   using namespace drogon;
+
+  roche_limit::server::install_crash_handler();
 
   const auto executable_path =
       argc > 0 ? std::filesystem::path(argv[0]) : std::filesystem::path{};

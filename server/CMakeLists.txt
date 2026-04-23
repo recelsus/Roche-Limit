@@ -1,6 +1,7 @@
 find_package(Drogon REQUIRED)
 
 add_executable(roche-limit
+    crash_handler.cc
     main.cc
     config/app_config.cc
     http/auth_controller.cc
