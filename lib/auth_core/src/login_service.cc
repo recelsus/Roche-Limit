@@ -103,9 +103,11 @@ IpAccessResult resolve_ip_access_level(const AuthRepository &auth_repository,
 
 } // namespace
 
-LoginService::LoginService(const AuthRepository &auth_repository,
-                           const LoginRepository &login_repository)
-    : auth_repository_(auth_repository), login_repository_(login_repository) {}
+LoginService::LoginService(
+    std::shared_ptr<const AuthRepository> auth_repository,
+    std::shared_ptr<const LoginRepository> login_repository)
+    : auth_repository_(std::move(auth_repository)),
+      login_repository_(std::move(login_repository)) {}
 
 LoginResult LoginService::login(const LoginRequest &request) const {
   if (!is_valid_ip_address(request.client_ip)) {
@@ -114,7 +116,7 @@ LoginResult LoginService::login(const LoginRequest &request) const {
         .reason = auth_reason::InvalidClientIp,
     };
   }
-  if (is_ip_denied(auth_repository_, request.client_ip)) {
+  if (is_ip_denied(*auth_repository_, request.client_ip)) {
     return LoginResult{
         .decision = LoginDecision::Deny,
         .reason = auth_reason::IpDeny,
@@ -122,7 +124,7 @@ LoginResult LoginService::login(const LoginRequest &request) const {
   }
 
   const auto user =
-      login_repository_.find_enabled_user_by_username(request.username);
+      login_repository_->find_enabled_user_by_username(request.username);
   if (!user.has_value()) {
     return LoginResult{
         .decision = LoginDecision::Deny,
@@ -130,7 +132,7 @@ LoginResult LoginService::login(const LoginRequest &request) const {
     };
   }
 
-  const auto credential = login_repository_.find_user_credential(user->id);
+  const auto credential = login_repository_->find_user_credential(user->id);
   if (!credential.has_value() ||
       !verify_password(request.password, credential->password_hash)) {
     return LoginResult{
@@ -144,7 +146,7 @@ LoginResult LoginService::login(const LoginRequest &request) const {
   const auto expires_at =
       format_timestamp(std::chrono::system_clock::now() +
                        std::chrono::hours(24 * kSessionPeriodDays));
-  login_repository_.insert_user_session(user->id, session_hash, expires_at);
+  login_repository_->insert_user_session(user->id, session_hash, expires_at);
 
   return LoginResult{
       .decision = LoginDecision::Allow,
@@ -164,7 +166,7 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
         .reason = auth_reason::InvalidClientIp,
     };
   }
-  if (is_ip_denied(auth_repository_, request.client_ip)) {
+  if (is_ip_denied(*auth_repository_, request.client_ip)) {
     return SessionAuthResult{
         .decision = LoginDecision::Deny,
         .access_level = 0,
@@ -173,7 +175,7 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
   }
 
   const auto ip_access = resolve_ip_access_level(
-      auth_repository_, request.client_ip, request.service_name);
+      *auth_repository_, request.client_ip, request.service_name);
   if (access_level_satisfies(ip_access.access_level,
                              request.required_access_level)) {
     return SessionAuthResult{
@@ -191,7 +193,7 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
     };
   }
 
-  const auto session = login_repository_.find_active_user_session(
+  const auto session = login_repository_->find_active_user_session(
       session_token_hash(*request.session_token));
   if (!session.has_value()) {
     return SessionAuthResult{
@@ -201,7 +203,7 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
     };
   }
   if (session_is_expired(session->expires_at)) {
-    login_repository_.revoke_user_session(session->session_token_hash);
+    login_repository_->revoke_user_session(session->session_token_hash);
     return SessionAuthResult{
         .decision = LoginDecision::Deny,
         .access_level = 0,
@@ -210,7 +212,8 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
     };
   }
 
-  const auto user = login_repository_.find_enabled_user_by_id(session->user_id);
+  const auto user =
+      login_repository_->find_enabled_user_by_id(session->user_id);
   if (!user.has_value()) {
     return SessionAuthResult{
         .decision = LoginDecision::Deny,
@@ -221,7 +224,7 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
   }
 
   int access_level = 0;
-  if (const auto service_level = login_repository_.find_user_service_level(
+  if (const auto service_level = login_repository_->find_user_service_level(
           user->id, request.service_name);
       service_level.has_value()) {
     access_level = service_level->access_level;
@@ -237,7 +240,7 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
     };
   }
 
-  login_repository_.update_user_session_last_seen(session->id);
+  login_repository_->update_user_session_last_seen(session->id);
 
   const bool session_level_allowed =
       access_level_satisfies(access_level, std::nullopt);
@@ -256,7 +259,7 @@ void LoginService::logout(std::string_view session_token) const {
   if (session_token.empty()) {
     return;
   }
-  login_repository_.revoke_user_session(session_token_hash(session_token));
+  login_repository_->revoke_user_session(session_token_hash(session_token));
 }
 
 } // namespace roche_limit::auth_core

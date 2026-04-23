@@ -43,9 +43,9 @@ int main(int argc, char *argv[]) {
     std::cerr << "audit cleanup failed: " << ex.what() << std::endl;
   }
   auto auth_service =
-      std::make_shared<roche_limit::auth_core::AuthService>(*repository);
+      std::make_shared<roche_limit::auth_core::AuthService>(repository);
   auto login_service = std::make_shared<roche_limit::auth_core::LoginService>(
-      *repository, *user_repository);
+      repository, user_repository);
   std::cout << "Verbose logging: "
             << (roche_limit::common::verbose_logging_enabled() ? "enabled"
                                                                : "disabled")

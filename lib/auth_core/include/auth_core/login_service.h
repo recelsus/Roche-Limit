@@ -5,21 +5,23 @@
 #include "login_request.h"
 #include "login_result.h"
 
+#include <memory>
 #include <string>
 
 namespace roche_limit::auth_core {
 
 class LoginService {
 public:
-    LoginService(const AuthRepository& auth_repository, const LoginRepository& login_repository);
+  LoginService(std::shared_ptr<const AuthRepository> auth_repository,
+               std::shared_ptr<const LoginRepository> login_repository);
 
-    LoginResult login(const LoginRequest& request) const;
-    SessionAuthResult authorize_session(const SessionAuthRequest& request) const;
-    void logout(std::string_view session_token) const;
+  LoginResult login(const LoginRequest &request) const;
+  SessionAuthResult authorize_session(const SessionAuthRequest &request) const;
+  void logout(std::string_view session_token) const;
 
 private:
-    const AuthRepository& auth_repository_;
-    const LoginRepository& login_repository_;
+  std::shared_ptr<const AuthRepository> auth_repository_;
+  std::shared_ptr<const LoginRepository> login_repository_;
 };
 
-}  // namespace roche_limit::auth_core
+} // namespace roche_limit::auth_core

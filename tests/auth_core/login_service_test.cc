@@ -9,6 +9,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -207,9 +208,9 @@ IpRuleRecord make_allow_rule(std::int64_t id, std::string value_text) {
 }
 
 void test_login_rejects_ip_deny() {
-  FakeAuthRepository auth_repository;
-  auth_repository.deny_rules = {make_deny_rule("203.0.113.10")};
-  FakeLoginRepository login_repository;
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auth_repository->deny_rules = {make_deny_rule("203.0.113.10")};
+  auto login_repository = std::make_shared<FakeLoginRepository>();
   LoginService service(auth_repository, login_repository);
 
   const auto result = service.login(LoginRequest{
@@ -223,9 +224,9 @@ void test_login_rejects_ip_deny() {
 }
 
 void test_login_allows_valid_credentials() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.users.push_back(UserRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
       .id = 10,
       .username = "alice",
       .enabled = true,
@@ -233,7 +234,7 @@ void test_login_allows_valid_credentials() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.credentials.push_back(UserCredentialRecord{
+  login_repository->credentials.push_back(UserCredentialRecord{
       .user_id = 10,
       .password_hash = roche_limit::auth_core::hash_password("secret-pass"),
       .password_updated_at = "",
@@ -254,15 +255,15 @@ void test_login_allows_valid_credentials() {
          "login should return user id");
   expect(result.session_token.has_value() && !result.session_token->empty(),
          "login should create a session token");
-  expect(login_repository.sessions.size() == 1,
+  expect(login_repository->sessions.size() == 1,
          "login should insert a session");
-  expect(login_repository.sessions.front().user_id == 10,
+  expect(login_repository->sessions.front().user_id == 10,
          "session should belong to the user");
 }
 
 void test_login_rejects_unknown_user() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
   LoginService service(auth_repository, login_repository);
 
   const auto result = service.login(LoginRequest{
@@ -278,9 +279,9 @@ void test_login_rejects_unknown_user() {
 }
 
 void test_login_rejects_legacy_password_hash_without_crash() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.users.push_back(UserRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
       .id = 11,
       .username = "legacy",
       .enabled = true,
@@ -288,7 +289,7 @@ void test_login_rejects_legacy_password_hash_without_crash() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.credentials.push_back(UserCredentialRecord{
+  login_repository->credentials.push_back(UserCredentialRecord{
       .user_id = 11,
       .password_hash =
           "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd38a6f09a7e3c5d3f5",
@@ -311,9 +312,9 @@ void test_login_rejects_legacy_password_hash_without_crash() {
 }
 
 void test_login_rejects_invalid_password() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.users.push_back(UserRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
       .id = 10,
       .username = "alice",
       .enabled = true,
@@ -321,7 +322,7 @@ void test_login_rejects_invalid_password() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.credentials.push_back(UserCredentialRecord{
+  login_repository->credentials.push_back(UserCredentialRecord{
       .user_id = 10,
       .password_hash = roche_limit::auth_core::hash_password("secret-pass"),
       .password_updated_at = "",
@@ -343,9 +344,9 @@ void test_login_rejects_invalid_password() {
 }
 
 void test_login_rejects_disabled_user() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.users.push_back(UserRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
       .id = 10,
       .username = "alice",
       .enabled = false,
@@ -353,7 +354,7 @@ void test_login_rejects_disabled_user() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.credentials.push_back(UserCredentialRecord{
+  login_repository->credentials.push_back(UserCredentialRecord{
       .user_id = 10,
       .password_hash = roche_limit::auth_core::hash_password("secret-pass"),
       .password_updated_at = "",
@@ -375,9 +376,9 @@ void test_login_rejects_disabled_user() {
 }
 
 void test_session_auth_uses_service_fallback() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.users.push_back(UserRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
       .id = 20,
       .username = "bob",
       .enabled = true,
@@ -385,7 +386,7 @@ void test_session_auth_uses_service_fallback() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.service_levels.push_back(UserServiceLevelRecord{
+  login_repository->service_levels.push_back(UserServiceLevelRecord{
       .id = 1,
       .user_id = 20,
       .service_name = "*",
@@ -395,7 +396,7 @@ void test_session_auth_uses_service_fallback() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.sessions.push_back(UserSessionRecord{
+  login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
       .session_token_hash = roche_limit::common::sha256_hex("session-token"),
       .user_id = 20,
@@ -417,17 +418,17 @@ void test_session_auth_uses_service_fallback() {
   expect(result.decision == LoginDecision::Allow,
          "session auth should allow fallback level");
   expect(result.access_level == 60, "fallback service level should be applied");
-  expect(login_repository.last_seen_updated,
+  expect(login_repository->last_seen_updated,
          "session auth using wildcard fallback should update last seen");
-  expect(login_repository.last_seen_session_id.has_value() &&
-             *login_repository.last_seen_session_id == 1,
+  expect(login_repository->last_seen_session_id.has_value() &&
+             *login_repository->last_seen_session_id == 1,
          "session auth should update the matched session");
 }
 
 void test_session_auth_prefers_exact_service_over_fallback() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.users.push_back(UserRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
       .id = 21,
       .username = "carol",
       .enabled = true,
@@ -435,7 +436,7 @@ void test_session_auth_prefers_exact_service_over_fallback() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.service_levels.push_back(UserServiceLevelRecord{
+  login_repository->service_levels.push_back(UserServiceLevelRecord{
       .id = 1,
       .user_id = 21,
       .service_name = "*",
@@ -445,7 +446,7 @@ void test_session_auth_prefers_exact_service_over_fallback() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.service_levels.push_back(UserServiceLevelRecord{
+  login_repository->service_levels.push_back(UserServiceLevelRecord{
       .id = 2,
       .user_id = 21,
       .service_name = "web",
@@ -455,7 +456,7 @@ void test_session_auth_prefers_exact_service_over_fallback() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.sessions.push_back(UserSessionRecord{
+  login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
       .session_token_hash = roche_limit::common::sha256_hex("session-token"),
       .user_id = 21,
@@ -481,9 +482,9 @@ void test_session_auth_prefers_exact_service_over_fallback() {
 }
 
 void test_session_auth_denies_when_no_matching_service_level_exists() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.users.push_back(UserRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
       .id = 22,
       .username = "dave",
       .enabled = true,
@@ -491,7 +492,7 @@ void test_session_auth_denies_when_no_matching_service_level_exists() {
       .created_at = "",
       .updated_at = "",
   });
-  login_repository.sessions.push_back(UserSessionRecord{
+  login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
       .session_token_hash = roche_limit::common::sha256_hex("session-token"),
       .user_id = 22,
@@ -514,14 +515,14 @@ void test_session_auth_denies_when_no_matching_service_level_exists() {
          "missing service level should deny");
   expect(result.reason == "insufficient_level",
          "missing service level should map to insufficient level");
-  expect(!login_repository.last_seen_updated,
+  expect(!login_repository->last_seen_updated,
          "deny should not update last seen");
 }
 
 void test_session_auth_allows_ip_bypass_when_required_level_is_met() {
-  FakeAuthRepository auth_repository;
-  auth_repository.allow_rules = {make_allow_rule(10, "198.51.100.20")};
-  auth_repository.service_levels.push_back(IpServiceLevelRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auth_repository->allow_rules = {make_allow_rule(10, "198.51.100.20")};
+  auth_repository->service_levels.push_back(IpServiceLevelRecord{
       .id = 1,
       .ip_rule_id = 10,
       .service_name = "web",
@@ -531,7 +532,7 @@ void test_session_auth_allows_ip_bypass_when_required_level_is_met() {
       .created_at = "",
       .updated_at = "",
   });
-  FakeLoginRepository login_repository;
+  auto login_repository = std::make_shared<FakeLoginRepository>();
   LoginService service(auth_repository, login_repository);
 
   const auto result = service.authorize_session(SessionAuthRequest{
@@ -546,14 +547,14 @@ void test_session_auth_allows_ip_bypass_when_required_level_is_met() {
   expect(result.access_level == 90, "ip bypass should return the ip level");
   expect(result.reason == "ip_service_override",
          "ip bypass should expose ip reason");
-  expect(!login_repository.last_seen_updated,
+  expect(!login_repository->last_seen_updated,
          "ip bypass should not update session last seen");
 }
 
 void test_session_auth_requires_session_when_ip_level_is_insufficient() {
-  FakeAuthRepository auth_repository;
-  auth_repository.allow_rules = {make_allow_rule(11, "198.51.100.21")};
-  FakeLoginRepository login_repository;
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auth_repository->allow_rules = {make_allow_rule(11, "198.51.100.21")};
+  auto login_repository = std::make_shared<FakeLoginRepository>();
   LoginService service(auth_repository, login_repository);
 
   const auto result = service.authorize_session(SessionAuthRequest{
@@ -570,8 +571,8 @@ void test_session_auth_requires_session_when_ip_level_is_insufficient() {
 }
 
 void test_session_auth_rejects_invalid_session() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
   LoginService service(auth_repository, login_repository);
 
   const auto result = service.authorize_session(SessionAuthRequest{
@@ -588,9 +589,9 @@ void test_session_auth_rejects_invalid_session() {
 }
 
 void test_session_auth_rejects_expired_session() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.sessions.push_back(UserSessionRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
       .session_token_hash = roche_limit::common::sha256_hex("session-token"),
       .user_id = 22,
@@ -613,15 +614,16 @@ void test_session_auth_rejects_expired_session() {
          "expired session should be denied");
   expect(result.reason == "expired_session",
          "expired session should report expired_session");
-  expect(login_repository.session_revoked, "expired session should be revoked");
-  expect(!login_repository.last_seen_updated,
+  expect(login_repository->session_revoked,
+         "expired session should be revoked");
+  expect(!login_repository->last_seen_updated,
          "expired session should not update last seen");
 }
 
 void test_logout_revokes_existing_session() {
-  FakeAuthRepository auth_repository;
-  FakeLoginRepository login_repository;
-  login_repository.sessions.push_back(UserSessionRecord{
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
       .session_token_hash = roche_limit::common::sha256_hex("session-token"),
       .user_id = 22,
@@ -635,9 +637,9 @@ void test_logout_revokes_existing_session() {
 
   service.logout("session-token");
 
-  expect(login_repository.session_revoked, "logout should revoke the session");
-  expect(login_repository.revoked_session_hash.has_value() &&
-             *login_repository.revoked_session_hash ==
+  expect(login_repository->session_revoked, "logout should revoke the session");
+  expect(login_repository->revoked_session_hash.has_value() &&
+             *login_repository->revoked_session_hash ==
                  roche_limit::common::sha256_hex("session-token"),
          "logout should revoke by hashed token");
 

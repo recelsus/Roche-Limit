@@ -9,6 +9,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -150,8 +151,8 @@ void test_access_level_value_object_boundaries() {
 }
 
 void test_ip_deny_wins() {
-  FakeRepository repository;
-  repository.deny_rules = {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->deny_rules = {
       make_ip_rule(1, "203.0.113.10", IpRuleEffect::Deny, IpRuleType::Single,
                    32),
   };
@@ -169,8 +170,8 @@ void test_ip_deny_wins() {
 }
 
 void test_unknown_ip_with_api_key_elevation() {
-  FakeRepository repository;
-  repository.api_keys = {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->api_keys = {
       make_api_key(2, "elevated-key", std::string("test"), 90),
   };
   AuthService service(repository);
@@ -189,8 +190,8 @@ void test_unknown_ip_with_api_key_elevation() {
 }
 
 void test_legacy_api_key_hash_is_rejected_without_crash() {
-  FakeRepository repository;
-  repository.api_keys = {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->api_keys = {
       ApiKeyRecord{
           .id = 7,
           .key_hash = "e37b1715cf8ede5c492d4838b4946c03023130aeeaae566d289d94a7"
@@ -224,11 +225,11 @@ void test_legacy_api_key_hash_is_rejected_without_crash() {
 }
 
 void test_allow_ip_service_override_fallback() {
-  FakeRepository repository;
-  repository.allow_rules = {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->allow_rules = {
       make_ip_rule(3, "10.0.0.0/8", IpRuleEffect::Allow, IpRuleType::Cidr, 8),
   };
-  repository.ip_service_levels = {
+  repository->ip_service_levels = {
       IpServiceLevelRecord{
           .id = 4,
           .ip_rule_id = 3,
@@ -257,8 +258,8 @@ void test_allow_ip_service_override_fallback() {
 }
 
 void test_allow_ip_without_service_level_defaults_to_60() {
-  FakeRepository repository;
-  repository.allow_rules = {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->allow_rules = {
       make_ip_rule(5, "192.0.2.10", IpRuleEffect::Allow, IpRuleType::Single,
                    32),
   };
@@ -277,12 +278,12 @@ void test_allow_ip_without_service_level_defaults_to_60() {
 }
 
 void test_required_access_level_denies_when_below_threshold() {
-  FakeRepository repository;
-  repository.allow_rules = {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->allow_rules = {
       make_ip_rule(5, "203.0.113.44", IpRuleEffect::Allow, IpRuleType::Single,
                    32),
   };
-  repository.ip_service_levels = {
+  repository->ip_service_levels = {
       IpServiceLevelRecord{
           .id = 6,
           .ip_rule_id = 5,
@@ -312,8 +313,8 @@ void test_required_access_level_denies_when_below_threshold() {
 }
 
 void test_required_access_level_allows_exact_match() {
-  FakeRepository repository;
-  repository.api_keys = {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->api_keys = {
       make_api_key(7, "required-level-key", std::string("karing"), 90),
   };
   AuthService service(repository);
