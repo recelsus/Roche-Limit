@@ -36,6 +36,8 @@ struct FakeRepository final : AuthRepository {
   std::vector<IpRuleRecord> allow_rules;
   std::vector<IpServiceLevelRecord> ip_service_levels;
   std::vector<ApiKeyRecord> api_keys;
+  std::vector<std::int64_t> successful_api_key_ids;
+  std::vector<std::int64_t> failed_api_key_ids;
 
   std::vector<IpRuleRecord> list_ip_rules(IpRuleEffect effect) const override {
     return effect == IpRuleEffect::Deny ? deny_rules : allow_rules;
@@ -77,6 +79,38 @@ struct FakeRepository final : AuthRepository {
     }
     return fallback;
   }
+
+  std::optional<ApiKeyRecord>
+  find_api_key_by_prefix(std::string_view key_prefix,
+                         std::string_view service_name) const override {
+    std::optional<ApiKeyRecord> fallback;
+    for (const auto &record : api_keys) {
+      if (!record.enabled || !record.key_prefix.has_value() ||
+          *record.key_prefix != key_prefix) {
+        continue;
+      }
+      if (record.service_name.has_value() &&
+          *record.service_name == service_name) {
+        return record;
+      }
+      if (!record.service_name.has_value()) {
+        fallback = record;
+      }
+    }
+    return fallback;
+  }
+
+  void note_api_key_success(std::int64_t api_key_id,
+                            std::string_view) const override {
+    const_cast<FakeRepository *>(this)->successful_api_key_ids.push_back(
+        api_key_id);
+  }
+
+  void note_api_key_failure(std::int64_t api_key_id,
+                            std::string_view) const override {
+    const_cast<FakeRepository *>(this)->failed_api_key_ids.push_back(
+        api_key_id);
+  }
 };
 
 [[noreturn]] void fail(std::string_view message) {
@@ -114,11 +148,15 @@ ApiKeyRecord make_api_key(std::int64_t id, std::string_view plain_key,
       .id = id,
       .key_hash = roche_limit::auth_core::hash_api_key(plain_key),
       .key_lookup_hash = roche_limit::auth_core::api_key_lookup_hash(plain_key),
-      .key_prefix = std::nullopt,
+      .key_prefix = roche_limit::auth_core::api_key_prefix(plain_key),
       .service_name = std::move(service_name),
       .access_level = access_level,
       .enabled = true,
       .expires_at = std::nullopt,
+      .last_used_at = std::nullopt,
+      .last_used_ip = std::nullopt,
+      .last_failed_at = std::nullopt,
+      .failed_attempts = 0,
       .note = std::nullopt,
       .created_at = "",
       .updated_at = "",
@@ -169,6 +207,29 @@ void test_ip_deny_wins() {
   expect(result.reason == "ip_deny", "ip deny should set reason");
 }
 
+void test_more_specific_deny_wins_over_broad_allow() {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->deny_rules = {
+      make_ip_rule(10, "10.1.0.0/16", IpRuleEffect::Deny, IpRuleType::Cidr,
+                   16),
+  };
+  repository->allow_rules = {
+      make_ip_rule(11, "10.0.0.0/8", IpRuleEffect::Allow, IpRuleType::Cidr, 8),
+  };
+  AuthService service(repository);
+
+  const AuthResult result = service.authorize(RequestContext{
+      .client_ip = "10.1.2.3",
+      .service_name = "primary",
+      .api_key = std::nullopt,
+  });
+
+  expect(result.decision == AuthDecision::Deny,
+         "more specific deny should override allow");
+  expect(result.reason == "ip_deny",
+         "deny-over-allow should still report ip_deny");
+}
+
 void test_unknown_ip_with_api_key_elevation() {
   auto repository = std::make_shared<FakeRepository>();
   repository->api_keys = {
@@ -187,6 +248,8 @@ void test_unknown_ip_with_api_key_elevation() {
   expect(result.access_level == 90, "api key should elevate to 90");
   expect(result.api_key_record_id.has_value() && *result.api_key_record_id == 2,
          "api key id should be returned");
+  expect(repository->successful_api_key_ids == std::vector<std::int64_t>{2},
+         "successful api key use should be tracked");
 }
 
 void test_legacy_api_key_hash_is_rejected_without_crash() {
@@ -198,11 +261,15 @@ void test_legacy_api_key_hash_is_rejected_without_crash() {
                       "920d7a6d",
           .key_lookup_hash =
               roche_limit::auth_core::api_key_lookup_hash("legacy-key"),
-          .key_prefix = std::nullopt,
+          .key_prefix = roche_limit::auth_core::api_key_prefix("legacy-key"),
           .service_name = std::string("test"),
           .access_level = 90,
           .enabled = true,
           .expires_at = std::nullopt,
+          .last_used_at = std::nullopt,
+          .last_used_ip = std::nullopt,
+          .last_failed_at = std::nullopt,
+          .failed_attempts = 0,
           .note = std::nullopt,
           .created_at = "",
           .updated_at = "",
@@ -222,6 +289,8 @@ void test_legacy_api_key_hash_is_rejected_without_crash() {
          "legacy api key hash should not elevate access");
   expect(!result.api_key_record_id.has_value(),
          "legacy api key hash should not match");
+  expect(repository->failed_api_key_ids == std::vector<std::int64_t>{7},
+         "failed api key use should be tracked by prefix");
 }
 
 void test_allow_ip_service_override_fallback() {
@@ -334,6 +403,49 @@ void test_required_access_level_allows_exact_match() {
          "api key reason should be preserved");
 }
 
+void test_custom_service_level_boundaries_allow_non_round_numbers() {
+  auto repository = std::make_shared<FakeRepository>();
+  repository->allow_rules = {
+      make_ip_rule(12, "203.0.113.90", IpRuleEffect::Allow, IpRuleType::Single,
+                   32),
+  };
+  repository->ip_service_levels = {
+      IpServiceLevelRecord{
+          .id = 13,
+          .ip_rule_id = 12,
+          .service_name = "pathC",
+          .access_level = 82,
+          .enabled = true,
+          .note = std::nullopt,
+          .created_at = "",
+          .updated_at = "",
+      },
+  };
+  AuthService service(repository);
+
+  const AuthResult allow_result = service.authorize(RequestContext{
+      .client_ip = "203.0.113.90",
+      .service_name = "pathC",
+      .api_key = std::nullopt,
+      .required_access_level = 81,
+  });
+  const AuthResult deny_result = service.authorize(RequestContext{
+      .client_ip = "203.0.113.90",
+      .service_name = "pathC",
+      .api_key = std::nullopt,
+      .required_access_level = 83,
+  });
+
+  expect(allow_result.decision == AuthDecision::Allow,
+         "custom service level should satisfy lower thresholds");
+  expect(allow_result.access_level == 82,
+         "custom service level should be preserved");
+  expect(deny_result.decision == AuthDecision::Deny,
+         "custom service level should fail higher thresholds");
+  expect(deny_result.reason == "insufficient_level",
+         "failed custom threshold should use insufficient_level");
+}
+
 } // namespace
 
 int main() {
@@ -342,12 +454,14 @@ int main() {
 
   test_access_level_value_object_boundaries();
   test_ip_deny_wins();
+  test_more_specific_deny_wins_over_broad_allow();
   test_unknown_ip_with_api_key_elevation();
   test_legacy_api_key_hash_is_rejected_without_crash();
   test_allow_ip_service_override_fallback();
   test_allow_ip_without_service_level_defaults_to_60();
   test_required_access_level_denies_when_below_threshold();
   test_required_access_level_allows_exact_match();
+  test_custom_service_level_boundaries_allow_non_round_numbers();
 
   std::cout << "roche_limit_auth_core_tests: ok" << std::endl;
   return 0;

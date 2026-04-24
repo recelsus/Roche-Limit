@@ -32,6 +32,11 @@ add_executable(roche_limit_auth_store_integration_tests
     auth_store/repository_integration_test.cc
 )
 
+add_executable(roche_limit_cli_audit_logging_tests
+    tools/cli_audit_logging_test.cc
+    ../tools/roche_limit_cli/audit_logging.cc
+)
+
 target_link_libraries(roche_limit_auth_core_tests
     PRIVATE
         roche_limit_auth_core
@@ -81,6 +86,12 @@ target_link_libraries(roche_limit_auth_store_integration_tests
         roche_limit_common
 )
 
+target_link_libraries(roche_limit_cli_audit_logging_tests
+    PRIVATE
+        roche_limit_auth_store
+        roche_limit_common
+)
+
 target_include_directories(roche_limit_login_service_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -113,6 +124,12 @@ target_include_directories(roche_limit_request_extractor_tests
 target_include_directories(roche_limit_auth_store_integration_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_include_directories(roche_limit_cli_audit_logging_tests
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/tools/roche_limit_cli
 )
 
 add_test(
@@ -148,4 +165,9 @@ add_test(
 add_test(
     NAME roche_limit_auth_store_integration_tests
     COMMAND roche_limit_auth_store_integration_tests
+)
+
+add_test(
+    NAME roche_limit_cli_audit_logging_tests
+    COMMAND roche_limit_cli_audit_logging_tests
 )

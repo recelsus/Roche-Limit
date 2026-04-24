@@ -65,6 +65,12 @@ struct FakeAuthRepository final : AuthRepository {
                                            std::string_view) const override {
     return std::nullopt;
   }
+  std::optional<ApiKeyRecord>
+  find_api_key_by_prefix(std::string_view, std::string_view) const override {
+    return std::nullopt;
+  }
+  void note_api_key_success(std::int64_t, std::string_view) const override {}
+  void note_api_key_failure(std::int64_t, std::string_view) const override {}
 };
 
 struct FakeLoginRepository final : LoginRepository {
