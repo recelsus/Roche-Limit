@@ -15,6 +15,10 @@ struct ApiKeyRecord {
   int access_level;
   bool enabled;
   std::optional<std::string> expires_at;
+  std::optional<std::string> last_used_at;
+  std::optional<std::string> last_used_ip;
+  std::optional<std::string> last_failed_at;
+  int failed_attempts;
   std::optional<std::string> note;
   std::string created_at;
   std::string updated_at;

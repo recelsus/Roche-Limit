@@ -105,6 +105,7 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
   std::optional<std::int64_t> api_key_record_id;
   if (request_context.api_key.has_value() &&
       !request_context.api_key->empty()) {
+    const auto key_prefix = api_key_prefix(*request_context.api_key);
     if (roche_limit::common::verbose_logging_enabled()) {
       std::cerr << "[auth_core] preparing api key lookup" << std::endl;
     }
@@ -118,6 +119,8 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
         verify_api_key(*request_context.api_key, api_key_record->key_hash)) {
       api_key_access_level = api_key_record->access_level;
       api_key_record_id = api_key_record->id;
+      repository_->note_api_key_success(*api_key_record_id,
+                                        request_context.client_ip);
       if (roche_limit::common::verbose_logging_enabled()) {
         std::cerr << "[auth_core] api key match id=" << *api_key_record_id
                   << " level=" << api_key_access_level << std::endl;
@@ -125,6 +128,11 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
       if (api_key_access_level > ip_access_level) {
         reason = auth_reason::ApiKeyElevated;
       }
+    } else if (const auto api_key_candidate = repository_->find_api_key_by_prefix(
+                   key_prefix, request_context.service_name);
+               api_key_candidate.has_value()) {
+      repository_->note_api_key_failure(api_key_candidate->id,
+                                        request_context.client_ip);
     }
   }
   if (roche_limit::common::verbose_logging_enabled()) {

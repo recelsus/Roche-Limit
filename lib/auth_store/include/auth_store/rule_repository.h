@@ -74,12 +74,24 @@ public:
   find_api_key(std::string_view key_lookup_hash,
                std::string_view service_name) const override;
 
+  std::optional<roche_limit::auth_core::ApiKeyRecord>
+  find_api_key_by_prefix(std::string_view key_prefix,
+                         std::string_view service_name) const override;
+
+  void note_api_key_success(std::int64_t api_key_id,
+                            std::string_view client_ip) const override;
+  void note_api_key_failure(std::int64_t api_key_id,
+                            std::string_view client_ip) const override;
+
   std::optional<roche_limit::auth_core::IpRuleRecord>
   find_allow_ip_rule_by_value(std::string_view value_text) const;
 
   std::vector<roche_limit::auth_core::IpServiceLevelRecord>
   list_ip_service_levels() const;
   std::vector<roche_limit::auth_core::ApiKeyRecord> list_api_keys() const;
+  std::optional<roche_limit::auth_core::ApiKeyRecord>
+  get_api_key(std::int64_t api_key_id) const;
+  void disable_expired_api_keys() const;
 
   std::int64_t insert_ip_rule(const NewIpRule &new_ip_rule) const;
   void update_ip_rule(std::int64_t ip_rule_id,

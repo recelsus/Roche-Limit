@@ -2,6 +2,7 @@
 
 #include <sodium.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -70,6 +71,12 @@ std::string api_key_lookup_hash(std::string_view api_key) {
   sodium_bin2hex(hex.data(), hex.size(), digest, sizeof digest);
   hex.resize(sizeof digest * 2);
   return hex;
+}
+
+std::string api_key_prefix(std::string_view api_key) {
+  constexpr std::size_t kPrefixLength = 8;
+  return std::string(
+      api_key.substr(0, std::min(kPrefixLength, api_key.size())));
 }
 
 bool verify_api_key(std::string_view api_key, const std::string &api_key_hash) {

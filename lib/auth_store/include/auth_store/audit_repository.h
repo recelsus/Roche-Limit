@@ -21,12 +21,17 @@ struct NewAuditEvent {
   std::optional<std::string> metadata_json;
 };
 
+struct AuditCleanupResult {
+  int retention_deleted_rows{0};
+  int overflow_deleted_rows{0};
+};
+
 class AuditRepository {
 public:
   explicit AuditRepository(std::filesystem::path database_path);
 
   void insert_event(const NewAuditEvent &event) const;
-  void cleanup(int retention_days, int max_rows) const;
+  AuditCleanupResult cleanup(int retention_days, int max_rows) const;
 
 private:
   std::filesystem::path database_path_;
