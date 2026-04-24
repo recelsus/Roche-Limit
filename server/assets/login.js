@@ -37,5 +37,18 @@ form.addEventListener('submit', async (event) => {
     return;
   }
 
+  if (response.status === 403) {
+    message.textContent = 'Security token expired. Reload the page.';
+    return;
+  }
+
+  if (response.status === 429) {
+    const retryAfter = response.headers.get('Retry-After');
+    message.textContent = retryAfter
+      ? `Too many attempts. Wait ${retryAfter} seconds and try again.`
+      : 'Too many attempts. Wait and try again.';
+    return;
+  }
+
   message.textContent = 'Unexpected server response.';
 });

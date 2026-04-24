@@ -17,6 +17,8 @@ __INLINE_LOGIN_CSS__
     </section>
 
     <form id="login-form" method="post">
+      <input type="hidden" name="csrf_token" value="__LOGIN_CSRF_TOKEN__">
+
       <label>
         ID
         <input type="text" name="username" autocomplete="username" required minlength="3">

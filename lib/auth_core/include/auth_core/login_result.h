@@ -17,6 +17,7 @@ struct LoginResult {
     std::optional<std::int64_t> user_id;
     std::optional<std::string> session_token;
     std::optional<std::string> expires_at;
+    std::optional<int> retry_after_seconds;
 };
 
 struct SessionAuthResult {

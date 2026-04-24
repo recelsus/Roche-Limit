@@ -13,6 +13,7 @@ namespace roche_limit::server::http {
 
 namespace {
 
+constexpr int kCsrfCookieMaxAgeSeconds = 600;
 SessionCookieConfig g_session_cookie_config;
 
 std::string env_or_default(const char* name, std::string fallback) {
@@ -122,6 +123,14 @@ std::string append_cookie_attributes(std::string cookie, const SessionCookieConf
     return cookie;
 }
 
+SessionCookieConfig csrf_cookie_config_from(const SessionCookieConfig& config) {
+    auto csrf_config = config;
+    csrf_config.name = roche_limit::server::http::csrf_cookie_name(config);
+    csrf_config.http_only = false;
+    csrf_config.max_age_seconds = kCsrfCookieMaxAgeSeconds;
+    return csrf_config;
+}
+
 }  // namespace
 
 SessionCookieConfig load_session_cookie_config() {
@@ -148,6 +157,10 @@ const SessionCookieConfig& session_cookie_config() {
     return g_session_cookie_config;
 }
 
+std::string csrf_cookie_name(const SessionCookieConfig& config) {
+    return config.name + "_csrf";
+}
+
 std::string make_session_cookie_header(std::string_view session_token,
                                        const SessionCookieConfig& config) {
     return append_cookie_attributes(config.name + "=" + std::string(session_token),
@@ -157,6 +170,20 @@ std::string make_session_cookie_header(std::string_view session_token,
 
 std::string make_clear_session_cookie_header(const SessionCookieConfig& config) {
     return append_cookie_attributes(config.name + "=deleted", config, 0);
+}
+
+std::string make_csrf_cookie_header(std::string_view csrf_token,
+                                    const SessionCookieConfig& config) {
+    const auto csrf_config = csrf_cookie_config_from(config);
+    return append_cookie_attributes(
+        csrf_config.name + "=" + std::string(csrf_token), csrf_config,
+        csrf_config.max_age_seconds);
+}
+
+std::string make_clear_csrf_cookie_header(const SessionCookieConfig& config) {
+    const auto csrf_config = csrf_cookie_config_from(config);
+    return append_cookie_attributes(csrf_config.name + "=deleted", csrf_config,
+                                    0);
 }
 
 }  // namespace roche_limit::server::http

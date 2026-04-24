@@ -35,6 +35,9 @@ A dedicated authorisation server designed around nginx `auth_request`.
 These endpoints are intended to be used behind nginx.
 Keep `/metrics` on an internal network or protect it at nginx.
 
+`/login` now applies per-IP + username rate limiting and temporary lockout.  
+`/login` and `/logout` both verify CSRF tokens. `GET /login` issues the token, and `/logout` expects the CSRF cookie plus either `X-CSRF-Token` or `csrf_token`.
+
 ## Observability
 
 Auth-related responses include `X-Request-Id` so nginx logs and Roche-Limit logs can be correlated.

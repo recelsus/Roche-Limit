@@ -100,6 +100,10 @@ ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view ra
     };
 }
 
+std::string resolve_request_client_ip(const drogon::HttpRequestPtr& request) {
+    return extract_client_ip(request);
+}
+
 roche_limit::auth_core::RequestContext build_request_context(
     const drogon::HttpRequestPtr& request) {
     const auto parsed_required_level =
@@ -116,10 +120,20 @@ roche_limit::auth_core::RequestContext build_request_context(
 
 roche_limit::auth_core::LoginRequest build_login_request(
     const drogon::HttpRequestPtr& request) {
+    const auto& cookie_config = session_cookie_config();
     return roche_limit::auth_core::LoginRequest{
         .client_ip = extract_client_ip(request),
         .username = request->getParameter("username"),
         .password = request->getParameter("password"),
+        .csrf_token = request->getParameter("csrf_token").empty()
+                          ? std::nullopt
+                          : std::optional<std::string>(
+                                request->getParameter("csrf_token")),
+        .csrf_cookie_token =
+            request->getCookie(csrf_cookie_name(cookie_config)).empty()
+                ? std::nullopt
+                : std::optional<std::string>(
+                      request->getCookie(csrf_cookie_name(cookie_config))),
     };
 }
 

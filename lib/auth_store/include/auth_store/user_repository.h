@@ -48,6 +48,22 @@ public:
                                      std::string_view expires_at) const override;
     void update_user_session_last_seen(std::int64_t session_id) const override;
     void revoke_user_session(std::string_view session_token_hash) const override;
+    std::optional<roche_limit::auth_core::LoginFailureRecord> find_login_failure(
+        std::string_view client_ip,
+        std::string_view username) const override;
+    void upsert_login_failure(std::string_view client_ip,
+                              std::string_view username,
+                              int failure_count,
+                              std::optional<std::string_view> locked_until) const override;
+    void clear_login_failure(std::string_view client_ip,
+                             std::string_view username) const override;
+    void insert_csrf_token(std::string_view purpose,
+                           std::string_view token_hash,
+                           std::string_view client_ip,
+                           std::string_view expires_at) const override;
+    bool has_valid_csrf_token(std::string_view purpose,
+                              std::string_view token_hash,
+                              std::string_view client_ip) const override;
 
     std::int64_t insert_user(const NewUserRecord& new_user_record) const;
     void update_user(std::int64_t user_id, const UpdateUserRecord& update_user_record) const;

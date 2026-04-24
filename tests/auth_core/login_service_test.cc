@@ -7,6 +7,7 @@
 #include "auth_core/password_hasher.h"
 #include "common/hash_util.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -19,10 +20,12 @@ namespace {
 using roche_limit::auth_core::AddressFamily;
 using roche_limit::auth_core::ApiKeyRecord;
 using roche_limit::auth_core::AuthRepository;
+using roche_limit::auth_core::CsrfTokenRecord;
 using roche_limit::auth_core::IpRuleEffect;
 using roche_limit::auth_core::IpRuleRecord;
 using roche_limit::auth_core::IpRuleType;
 using roche_limit::auth_core::IpServiceLevelRecord;
+using roche_limit::auth_core::LoginFailureRecord;
 using roche_limit::auth_core::LoginDecision;
 using roche_limit::auth_core::LoginRepository;
 using roche_limit::auth_core::LoginRequest;
@@ -68,6 +71,8 @@ struct FakeLoginRepository final : LoginRepository {
   std::vector<UserRecord> users;
   std::vector<UserCredentialRecord> credentials;
   std::vector<UserServiceLevelRecord> service_levels;
+  mutable std::vector<LoginFailureRecord> login_failures;
+  mutable std::vector<CsrfTokenRecord> csrf_tokens;
   mutable std::vector<UserSessionRecord> sessions;
   mutable std::int64_t next_session_id{1};
   mutable bool last_seen_updated{false};
@@ -164,6 +169,81 @@ struct FakeLoginRepository final : LoginRepository {
       }
     }
   }
+
+  std::optional<LoginFailureRecord> find_login_failure(
+      std::string_view client_ip, std::string_view username) const override {
+    for (const auto& record : login_failures) {
+      if (record.client_ip == client_ip && record.username == username) {
+        return record;
+      }
+    }
+    return std::nullopt;
+  }
+
+  void upsert_login_failure(std::string_view client_ip,
+                            std::string_view username, int failure_count,
+                            std::optional<std::string_view> locked_until)
+      const override {
+    for (auto& record : login_failures) {
+      if (record.client_ip == client_ip && record.username == username) {
+        record.failure_count = failure_count;
+        record.last_failed_at = "2099-01-01 00:00:00";
+        record.locked_until = locked_until.has_value()
+                                  ? std::optional<std::string>(*locked_until)
+                                  : std::nullopt;
+        return;
+      }
+    }
+    login_failures.push_back(LoginFailureRecord{
+        .id = static_cast<std::int64_t>(login_failures.size() + 1),
+        .client_ip = std::string(client_ip),
+        .username = std::string(username),
+        .failure_count = failure_count,
+        .last_failed_at = "2099-01-01 00:00:00",
+        .locked_until = locked_until.has_value()
+                            ? std::optional<std::string>(*locked_until)
+                            : std::nullopt,
+        .created_at = "",
+        .updated_at = "",
+    });
+  }
+
+  void clear_login_failure(std::string_view client_ip,
+                           std::string_view username) const override {
+    login_failures.erase(
+        std::remove_if(login_failures.begin(), login_failures.end(),
+                       [&](const auto& record) {
+                         return record.client_ip == client_ip &&
+                                record.username == username;
+                       }),
+        login_failures.end());
+  }
+
+  void insert_csrf_token(std::string_view purpose, std::string_view token_hash,
+                         std::string_view client_ip,
+                         std::string_view expires_at) const override {
+    csrf_tokens.push_back(CsrfTokenRecord{
+        .id = static_cast<std::int64_t>(csrf_tokens.size() + 1),
+        .purpose = std::string(purpose),
+        .token_hash = std::string(token_hash),
+        .client_ip = std::string(client_ip),
+        .expires_at = std::string(expires_at),
+        .created_at = "",
+        .updated_at = "",
+    });
+  }
+
+  bool has_valid_csrf_token(std::string_view purpose,
+                            std::string_view token_hash,
+                            std::string_view client_ip) const override {
+    for (const auto& record : csrf_tokens) {
+      if (record.purpose == purpose && record.token_hash == token_hash &&
+          record.client_ip == client_ip && record.expires_at > "2000-01-01 00:00:00") {
+        return true;
+      }
+    }
+    return false;
+  }
 };
 
 [[noreturn]] void fail(std::string_view message) {
@@ -175,6 +255,28 @@ void expect(bool condition, std::string_view message) {
   if (!condition) {
     fail(message);
   }
+}
+
+constexpr std::string_view kLoginCsrfToken = "csrf-token";
+
+LoginRequest make_login_request(std::string_view client_ip,
+                                std::string_view username,
+                                std::string_view password) {
+  return LoginRequest{
+      .client_ip = std::string(client_ip),
+      .username = std::string(username),
+      .password = std::string(password),
+      .csrf_token = std::string(kLoginCsrfToken),
+      .csrf_cookie_token = std::string(kLoginCsrfToken),
+  };
+}
+
+void add_login_csrf_token(FakeLoginRepository& repository,
+                          std::string_view client_ip) {
+  repository.insert_csrf_token("login",
+                               roche_limit::common::sha256_hex(kLoginCsrfToken),
+                               client_ip,
+                               "2099-01-01 00:00:00");
 }
 
 IpRuleRecord make_deny_rule(std::string value_text) {
@@ -211,13 +313,11 @@ void test_login_rejects_ip_deny() {
   auto auth_repository = std::make_shared<FakeAuthRepository>();
   auth_repository->deny_rules = {make_deny_rule("203.0.113.10")};
   auto login_repository = std::make_shared<FakeLoginRepository>();
+  add_login_csrf_token(*login_repository, "203.0.113.10");
   LoginService service(auth_repository, login_repository);
 
-  const auto result = service.login(LoginRequest{
-      .client_ip = "203.0.113.10",
-      .username = "alice",
-      .password = "password",
-  });
+  const auto result = service.login(
+      make_login_request("203.0.113.10", "alice", "password"));
 
   expect(result.decision == LoginDecision::Deny, "ip deny should reject login");
   expect(result.reason == "ip_deny", "ip deny should set login reason");
@@ -241,13 +341,11 @@ void test_login_allows_valid_credentials() {
       .created_at = "",
       .updated_at = "",
   });
+  add_login_csrf_token(*login_repository, "198.51.100.20");
   LoginService service(auth_repository, login_repository);
 
-  const auto result = service.login(LoginRequest{
-      .client_ip = "198.51.100.20",
-      .username = "alice",
-      .password = "secret-pass",
-  });
+  const auto result = service.login(
+      make_login_request("198.51.100.20", "alice", "secret-pass"));
 
   expect(result.decision == LoginDecision::Allow,
          "valid credentials should allow login");
@@ -264,13 +362,11 @@ void test_login_allows_valid_credentials() {
 void test_login_rejects_unknown_user() {
   auto auth_repository = std::make_shared<FakeAuthRepository>();
   auto login_repository = std::make_shared<FakeLoginRepository>();
+  add_login_csrf_token(*login_repository, "198.51.100.20");
   LoginService service(auth_repository, login_repository);
 
-  const auto result = service.login(LoginRequest{
-      .client_ip = "198.51.100.20",
-      .username = "missing",
-      .password = "secret-pass",
-  });
+  const auto result = service.login(
+      make_login_request("198.51.100.20", "missing", "secret-pass"));
 
   expect(result.decision == LoginDecision::Deny,
          "unknown user should be denied");
@@ -297,13 +393,11 @@ void test_login_rejects_legacy_password_hash_without_crash() {
       .created_at = "",
       .updated_at = "",
   });
+  add_login_csrf_token(*login_repository, "198.51.100.20");
   LoginService service(auth_repository, login_repository);
 
-  const auto result = service.login(LoginRequest{
-      .client_ip = "198.51.100.20",
-      .username = "legacy",
-      .password = "password",
-  });
+  const auto result = service.login(
+      make_login_request("198.51.100.20", "legacy", "password"));
 
   expect(result.decision == LoginDecision::Deny,
          "legacy hash should be rejected");
@@ -329,13 +423,11 @@ void test_login_rejects_invalid_password() {
       .created_at = "",
       .updated_at = "",
   });
+  add_login_csrf_token(*login_repository, "198.51.100.20");
   LoginService service(auth_repository, login_repository);
 
-  const auto result = service.login(LoginRequest{
-      .client_ip = "198.51.100.20",
-      .username = "alice",
-      .password = "wrong-pass",
-  });
+  const auto result = service.login(
+      make_login_request("198.51.100.20", "alice", "wrong-pass"));
 
   expect(result.decision == LoginDecision::Deny,
          "invalid password should be denied");
@@ -361,18 +453,104 @@ void test_login_rejects_disabled_user() {
       .created_at = "",
       .updated_at = "",
   });
+  add_login_csrf_token(*login_repository, "198.51.100.20");
+  LoginService service(auth_repository, login_repository);
+
+  const auto result = service.login(
+      make_login_request("198.51.100.20", "alice", "secret-pass"));
+
+  expect(result.decision == LoginDecision::Deny,
+         "disabled user should be denied");
+  expect(result.reason == "invalid_credentials",
+         "disabled user should look like bad credentials");
+}
+
+void test_login_rejects_invalid_csrf() {
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
   LoginService service(auth_repository, login_repository);
 
   const auto result = service.login(LoginRequest{
       .client_ip = "198.51.100.20",
       .username = "alice",
       .password = "secret-pass",
+      .csrf_token = std::string("invalid"),
+      .csrf_cookie_token = std::string("invalid"),
   });
 
   expect(result.decision == LoginDecision::Deny,
-         "disabled user should be denied");
-  expect(result.reason == "invalid_credentials",
-         "disabled user should look like bad credentials");
+         "invalid csrf should deny login");
+  expect(result.reason == "invalid_csrf",
+         "invalid csrf should expose csrf reason");
+}
+
+void test_login_rate_limits_after_recent_failure() {
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->login_failures.push_back(LoginFailureRecord{
+      .id = 1,
+      .client_ip = "198.51.100.20",
+      .username = "alice",
+      .failure_count = 3,
+      .last_failed_at = "2099-01-01 00:00:00",
+      .locked_until = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  });
+  add_login_csrf_token(*login_repository, "198.51.100.20");
+  LoginService service(auth_repository, login_repository);
+
+  const auto result = service.login(
+      make_login_request("198.51.100.20", "alice", "secret-pass"));
+
+  expect(result.decision == LoginDecision::Deny,
+         "recent failures should rate limit login");
+  expect(result.reason == "rate_limited",
+         "recent failures should expose rate_limited");
+  expect(result.retry_after_seconds.has_value(),
+         "rate limited login should expose retry-after");
+}
+
+void test_login_locks_after_threshold() {
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
+      .id = 10,
+      .username = "alice",
+      .enabled = true,
+      .note = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  });
+  login_repository->credentials.push_back(UserCredentialRecord{
+      .user_id = 10,
+      .password_hash = roche_limit::auth_core::hash_password("secret-pass"),
+      .password_updated_at = "",
+      .created_at = "",
+      .updated_at = "",
+  });
+  login_repository->login_failures.push_back(LoginFailureRecord{
+      .id = 1,
+      .client_ip = "198.51.100.20",
+      .username = "alice",
+      .failure_count = 7,
+      .last_failed_at = "2000-01-01 00:00:00",
+      .locked_until = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  });
+  add_login_csrf_token(*login_repository, "198.51.100.20");
+  LoginService service(auth_repository, login_repository);
+
+  const auto result = service.login(
+      make_login_request("198.51.100.20", "alice", "wrong-pass"));
+
+  expect(result.decision == LoginDecision::Deny,
+         "threshold crossing should deny login");
+  expect(result.reason == "locked",
+         "threshold crossing should lock the login");
+  expect(result.retry_after_seconds.has_value(),
+         "locked login should expose retry-after");
 }
 
 void test_session_auth_uses_service_fallback() {
@@ -665,6 +843,9 @@ int main() {
   test_login_rejects_legacy_password_hash_without_crash();
   test_login_rejects_invalid_password();
   test_login_rejects_disabled_user();
+  test_login_rejects_invalid_csrf();
+  test_login_rate_limits_after_recent_failure();
+  test_login_locks_after_threshold();
   test_session_auth_uses_service_fallback();
   test_session_auth_prefers_exact_service_over_fallback();
   test_session_auth_denies_when_no_matching_service_level_exists();

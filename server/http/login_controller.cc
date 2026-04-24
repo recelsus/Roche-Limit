@@ -42,9 +42,33 @@ void add_session_cookie(const drogon::HttpResponsePtr &response,
       make_session_cookie_header(session_token, session_cookie_config()));
 }
 
+void add_csrf_cookie(const drogon::HttpResponsePtr &response,
+                     std::string_view csrf_token) {
+  response->addHeader("Set-Cookie",
+                      make_csrf_cookie_header(csrf_token, session_cookie_config()));
+}
+
 void clear_session_cookie(const drogon::HttpResponsePtr &response) {
   response->addHeader("Set-Cookie", make_clear_session_cookie_header(
                                         session_cookie_config()));
+}
+
+void clear_csrf_cookie(const drogon::HttpResponsePtr &response) {
+  response->addHeader("Set-Cookie",
+                      make_clear_csrf_cookie_header(session_cookie_config()));
+}
+
+std::optional<std::string> extract_logout_csrf_token(
+    const drogon::HttpRequestPtr &request) {
+  const auto header_value = request->getHeader("X-CSRF-Token");
+  if (!header_value.empty()) {
+    return header_value;
+  }
+  const auto parameter_value = request->getParameter("csrf_token");
+  if (!parameter_value.empty()) {
+    return parameter_value;
+  }
+  return std::nullopt;
 }
 
 void try_insert_audit_event(
@@ -76,8 +100,11 @@ void handle_login(
     if (login_result.decision == roche_limit::auth_core::LoginDecision::Allow &&
         login_result.session_token.has_value()) {
       auto response = make_basic_response(drogon::k204NoContent);
+      const auto logout_csrf_token =
+          login_service->issue_csrf_token("logout", login_request.client_ip);
       add_request_id(response, request_id);
       add_session_cookie(response, *login_result.session_token);
+      add_csrf_cookie(response, logout_csrf_token);
       record_auth_request("login", "allow", login_result.reason);
       try_insert_audit_event(
           audit_repository,
@@ -98,19 +125,37 @@ void handle_login(
       return;
     }
 
-    auto response = make_basic_response(drogon::k401Unauthorized);
+    const bool invalid_csrf =
+        login_result.reason == roche_limit::auth_core::auth_reason::InvalidCsrf;
+    const bool rate_limited =
+        login_result.reason == roche_limit::auth_core::auth_reason::RateLimited;
+    const bool locked =
+        login_result.reason == roche_limit::auth_core::auth_reason::Locked;
+    auto response = make_basic_response(
+        invalid_csrf ? drogon::k403Forbidden
+                     : (rate_limited || locked ? drogon::k429TooManyRequests
+                                               : drogon::k401Unauthorized));
     add_request_id(response, request_id);
+    if (login_result.retry_after_seconds.has_value()) {
+      response->addHeader("Retry-After",
+                          std::to_string(*login_result.retry_after_seconds));
+    }
     record_auth_request("login", "deny", login_result.reason);
-    try_insert_audit_event(audit_repository,
-                           roche_limit::auth_store::NewAuditEvent{
-                               .event_type = "login_failure",
-                               .actor_type = "unknown",
-                               .client_ip = login_request.client_ip,
-                               .request_id = request_id,
-                               .result = "deny",
-                               .reason = login_result.reason,
-                           },
-                           "login_failure");
+    try_insert_audit_event(
+        audit_repository,
+        roche_limit::auth_store::NewAuditEvent{
+            .event_type = invalid_csrf
+                              ? "login_csrf_deny"
+                              : (rate_limited ? "login_rate_limited"
+                                              : (locked ? "login_locked"
+                                                        : "login_failure")),
+            .actor_type = "unknown",
+            .client_ip = login_request.client_ip,
+            .request_id = request_id,
+            .result = "deny",
+            .reason = login_result.reason,
+        },
+        "login_failure");
     callback(response);
   } catch (const std::exception &ex) {
     LOG_ERROR << "login handler failed request_id=" << request_id << ": "
@@ -310,13 +355,52 @@ void handle_logout(
     std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
   const auto request_id = next_request_id();
   try {
+    const auto peer_ip = request->peerAddr().toIp();
+    if (!is_allowed_auth_peer(peer_ip)) {
+      auto response = make_basic_response(drogon::k403Forbidden);
+      add_request_id(response, request_id);
+      clear_session_cookie(response);
+      clear_csrf_cookie(response);
+      record_auth_request("logout", "deny",
+                          roche_limit::auth_core::auth_reason::ForbiddenPeer);
+      callback(response);
+      return;
+    }
     const auto session_request = build_session_auth_request(request);
+    const auto csrf_token = extract_logout_csrf_token(request);
+    const auto csrf_cookie =
+        request->getCookie(csrf_cookie_name(session_cookie_config()));
+    if (!login_service->validate_csrf_token(
+            "logout", session_request.client_ip, csrf_token,
+            csrf_cookie.empty() ? std::nullopt
+                                : std::optional<std::string_view>(csrf_cookie))) {
+      auto response = make_basic_response(drogon::k403Forbidden);
+      add_request_id(response, request_id);
+      clear_session_cookie(response);
+      clear_csrf_cookie(response);
+      record_auth_request("logout", "deny",
+                          roche_limit::auth_core::auth_reason::InvalidCsrf);
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = "logout_csrf_deny",
+              .actor_type = "unknown",
+              .client_ip = session_request.client_ip,
+              .request_id = request_id,
+              .result = "deny",
+              .reason = roche_limit::auth_core::auth_reason::InvalidCsrf,
+          },
+          "logout_csrf_deny");
+      callback(response);
+      return;
+    }
     if (session_request.session_token.has_value()) {
       login_service->logout(*session_request.session_token);
     }
     auto response = make_basic_response(drogon::k204NoContent);
     add_request_id(response, request_id);
     clear_session_cookie(response);
+    clear_csrf_cookie(response);
     record_auth_request("logout", "allow",
                         roche_limit::auth_core::auth_reason::Logout);
     try_insert_audit_event(
@@ -352,22 +436,46 @@ void register_login_routes(
 
   drogon::app().registerHandler(
       "/login",
-      [](const drogon::HttpRequestPtr &,
+      [](const drogon::HttpRequestPtr &request,
          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
         const auto request_id = next_request_id();
-        auto response = make_login_page_response();
+        const auto client_ip = resolve_request_client_ip(request);
+        if (!g_login_service->can_access_login_page(client_ip)) {
+          auto response = make_basic_response(drogon::k403Forbidden);
+          add_request_id(response, request_id);
+          record_auth_request("login_page", "deny",
+                              roche_limit::auth_core::auth_reason::IpDeny);
+          callback(response);
+          return;
+        }
+        const auto csrf_token =
+            g_login_service->issue_csrf_token("login", client_ip);
+        auto response = make_login_page_response(csrf_token);
         add_request_id(response, request_id);
+        add_csrf_cookie(response, csrf_token);
         record_auth_request("login_page", "allow", "page");
         callback(response);
       },
       {drogon::Get});
   drogon::app().registerHandler(
       "/login/",
-      [](const drogon::HttpRequestPtr &,
+      [](const drogon::HttpRequestPtr &request,
          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
         const auto request_id = next_request_id();
-        auto response = make_login_page_response();
+        const auto client_ip = resolve_request_client_ip(request);
+        if (!g_login_service->can_access_login_page(client_ip)) {
+          auto response = make_basic_response(drogon::k403Forbidden);
+          add_request_id(response, request_id);
+          record_auth_request("login_page", "deny",
+                              roche_limit::auth_core::auth_reason::IpDeny);
+          callback(response);
+          return;
+        }
+        const auto csrf_token =
+            g_login_service->issue_csrf_token("login", client_ip);
+        auto response = make_login_page_response(csrf_token);
         add_request_id(response, request_id);
+        add_csrf_cookie(response, csrf_token);
         record_auth_request("login_page", "allow", "page");
         callback(response);
       },

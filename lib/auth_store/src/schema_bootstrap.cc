@@ -16,7 +16,7 @@ namespace roche_limit::auth_store {
 namespace {
 
 constexpr int kLatestSchemaVersion = 1;
-constexpr int kLatestMigrationVersion = 3;
+constexpr int kLatestMigrationVersion = 4;
 
 std::filesystem::path source_root() {
 #ifdef ROCHE_LIMIT_SOURCE_DIR
@@ -250,6 +250,8 @@ bootstrap_at_path(const std::filesystem::path &database_path,
       "user_credentials",
       "user_service_levels",
       "user_sessions",
+      "login_failures",
+      "csrf_tokens",
       "audit_events",
   };
 

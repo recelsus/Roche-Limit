@@ -9,6 +9,8 @@ struct LoginRequest {
     std::string client_ip;
     std::string username;
     std::string password;
+    std::optional<std::string> csrf_token;
+    std::optional<std::string> csrf_cookie_token;
 };
 
 struct SessionAuthRequest {

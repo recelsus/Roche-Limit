@@ -9,6 +9,8 @@ add_library(roche_limit_auth_store
     src/sqlite_connection.cc
     src/user_repository.cc
     src/user_repository_compact.cc
+    src/user_repository_csrf.cc
+    src/user_repository_login_failure.cc
     src/user_repository_session.cc
 )
 

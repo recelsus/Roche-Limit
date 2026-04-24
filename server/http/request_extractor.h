@@ -15,6 +15,7 @@ struct ParsedRequiredAccessLevel {
 };
 
 ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view header_value);
+std::string resolve_request_client_ip(const drogon::HttpRequestPtr& request);
 
 roche_limit::auth_core::RequestContext build_request_context(
     const drogon::HttpRequestPtr& request);

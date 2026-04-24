@@ -35,6 +35,9 @@ nginxの`auth_request`を前提の認証専用サーバー。
 これらは nginx からの内部利用を前提とした構成です。
 `/metrics` は内部 network に留めるか、nginx 側で保護してください。
 
+`/login` には IP + username 単位の rate limit / 一時 lockout があります。  
+`/login` / `/logout` は CSRF token を検証します。`/login` は GET 時に token を発行し、`/logout` は login 成功後に払い出された CSRF cookie と `X-CSRF-Token` または `csrf_token` を利用します。
+
 ## Observability
 
 認証系のレスポンスには `X-Request-Id` を付与します。nginx のログと Roche-Limit 側のログを突き合わせるための値です。

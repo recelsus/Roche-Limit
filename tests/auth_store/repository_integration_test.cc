@@ -108,8 +108,12 @@ void test_bootstrap_creates_current_schema() {
          "new schema should include key_lookup_hash");
   expect(connection.table_exists("audit_events"),
          "audit_events table should exist");
+  expect(connection.table_exists("login_failures"),
+         "login_failures table should exist");
+  expect(connection.table_exists("csrf_tokens"),
+         "csrf_tokens table should exist");
   expect(scalar_text(database_path, "SELECT value FROM schema_metadata WHERE "
-                                    "key = 'migration_version';") == "3",
+                                    "key = 'migration_version';") == "4",
          "new schema should mark latest migration version");
 }
 
@@ -151,8 +155,12 @@ CREATE TABLE api_keys (
          "migration should add key_lookup_hash column");
   expect(connection.table_exists("audit_events"),
          "migration should add audit_events table");
+  expect(connection.table_exists("login_failures"),
+         "migration should add login_failures table");
+  expect(connection.table_exists("csrf_tokens"),
+         "migration should add csrf_tokens table");
   expect(scalar_text(database_path, "SELECT value FROM schema_metadata WHERE "
-                                    "key = 'migration_version';") == "3",
+                                    "key = 'migration_version';") == "4",
          "migration should store latest migration version");
 }
 

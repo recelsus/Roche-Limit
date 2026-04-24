@@ -45,4 +45,25 @@ struct UserSessionRecord {
     std::string updated_at;
 };
 
+struct LoginFailureRecord {
+    std::int64_t id;
+    std::string client_ip;
+    std::string username;
+    int failure_count;
+    std::string last_failed_at;
+    std::optional<std::string> locked_until;
+    std::string created_at;
+    std::string updated_at;
+};
+
+struct CsrfTokenRecord {
+    std::int64_t id;
+    std::string purpose;
+    std::string token_hash;
+    std::string client_ip;
+    std::string expires_at;
+    std::string created_at;
+    std::string updated_at;
+};
+
 }  // namespace roche_limit::auth_core
