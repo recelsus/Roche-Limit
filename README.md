@@ -7,6 +7,7 @@ A dedicated authorisation server designed around nginx `auth_request`.
 - IP address allow / deny rules
 - IP-based access level control
 - API key based access level control
+- API key usage stats, rotation, and expiry disable
 - Service-specific access level control
 - CLI-based inspection and updates
 
@@ -41,6 +42,8 @@ Keep `/metrics` on an internal network or protect it at nginx.
 ## Observability
 
 Auth-related responses include `X-Request-Id` so nginx logs and Roche-Limit logs can be correlated.
+
+Audit logs now carry a hash chain. `metadata_json` is stored in a standardised JSON shape, and CLI management operations plus cleanup are audited as well.
 
 `/metrics` exposes Prometheus-style counters:
 
@@ -95,6 +98,19 @@ Unknown IPs default to `10`.
 `X-Target-Service` and `X-Required-Level` are required.  
 For API keys, `Bearer` is checked first, then `X-API-Key`.
 If `X-Required-Level` cannot be parsed, `/auth` returns `403`.
+
+For API keys, `service` acts as the scope.  
+Resolution is `service match -> *`.
+
+API keys also track:
+
+- `last_used_at`
+- `last_used_ip`
+- `last_failed_at`
+- `failed_attempts`
+
+Expiring API keys are auto-disabled during lookup/list operations.  
+The CLI provides `key rotate` to issue a replacement key and disable the old one.
 
 `X-Real-IP` and `X-Forwarded-For` are trusted only when the direct peer matches `ROCHE_LIMIT_TRUSTED_PROXIES`. If it is not set, forwarded headers are ignored and the peer IP is used.
 `/auth` and `/session/auth` are allowed only from peers matching `ROCHE_LIMIT_ALLOWED_PEERS`. When it is unset, Roche-Limit reuses `ROCHE_LIMIT_TRUSTED_PROXIES`. Only when both are unset are auth endpoints open to any peer.

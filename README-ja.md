@@ -7,6 +7,7 @@ nginxの`auth_request`を前提の認証専用サーバー。
 - IPアドレスのallow/deny
 - IPアドレスのアクセスレベル制御
 - APIキーによるアクセスレベル制御
+- APIキーの利用統計 / rotation / expiry disable
 - サービス単位のアクセスレベル制御
 - CLIによる設定確認と更新
 
@@ -41,6 +42,8 @@ nginxの`auth_request`を前提の認証専用サーバー。
 ## Observability
 
 認証系のレスポンスには `X-Request-Id` を付与します。nginx のログと Roche-Limit 側のログを突き合わせるための値です。
+
+監査ログは hash chain を持ちます。`metadata_json` は標準化された JSON 形式で保存され、CLI 管理操作や cleanup も監査対象です。
 
 `/metrics` は Prometheus 形式の counter を返します。
 
@@ -94,6 +97,19 @@ nginxの`auth_request`を前提の認証専用サーバー。
 `X-Target-Service` と `X-Required-Level` は必須です。  
 API キーは `Bearer` を優先し、次に `X-API-Key` を参照します。
 `X-Required-Level` の parse に失敗した場合は `403` を返します。
+
+APIキーの `service` は scope として扱います。  
+一致順は `service一致 -> *` です。
+
+APIキーは次を保持します。
+
+- `last_used_at`
+- `last_used_ip`
+- `last_failed_at`
+- `failed_attempts`
+
+期限付き API キーは lookup / list 時に自動で disable されます。  
+CLI では `key rotate` で旧 key を disable しつつ新 key を再発行できます。
 
 `X-Real-IP` / `X-Forwarded-For` は `ROCHE_LIMIT_TRUSTED_PROXIES` に一致する接続元から来た場合のみ信用します。未設定時は forwarded 系ヘッダを無視し、直接の peer IP を使用します。
 `/auth` と `/session/auth` は `ROCHE_LIMIT_ALLOWED_PEERS` に一致する接続元のみ許可します。未設定時は `ROCHE_LIMIT_TRUSTED_PROXIES` を流用し、両方未設定のときだけ peer 制限なしで動作します。

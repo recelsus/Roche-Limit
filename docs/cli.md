@@ -28,18 +28,34 @@ roche_limit_cli ip remove <rule-id>
 roche_limit_cli key list
 roche_limit_cli key add <plain-api-key> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
 roche_limit_cli key gen [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
+roche_limit_cli key rotate <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
 roche_limit_cli key set <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
 roche_limit_cli key disable <api-key-id>
 roche_limit_cli key remove <api-key-id>
 ```
 
 - `key add` と `key gen` の `--level` 省略時は `30`
-- `--service` 省略時は全サービス共通
-- `--service *` でも全サービス共通を指定できる
-- `key gen` は生成した平文キーを1回だけ表示する
+- `--service` は key の scope として扱われます。省略時は全サービス共通です
+- `--service *` でも全サービス共通を指定できます
+- `key gen` と `key rotate` は生成した平文キーを1回だけ表示します
+- `key rotate` は旧 key を disable したうえで、新しい key を同じ設定で再発行します
 - APIキー作成・検証には `ROCHE_LIMIT_API_KEY_PEPPER` が必須
 - DBには平文キーを保存せず、Argon2id verifier, peppered lookup hash, prefix のみを保存する
-- `key list` は平文キーや verifier を表示せず、prefix のみを表示する
+- `key list` は平文キーや verifier を表示せず、prefix と利用統計のみを表示します
+- `key list` では `last_used`, `last_ip`, `fails`, `last_failed`, `expires` を確認できます
+- 期限切れ key は lookup/list 時に自動で disable されます
+- `key_prefix` は DB 上で一意です
+
+### Audit
+
+```text
+roche_limit_cli audit cleanup [--retention-days <days>] [--max-rows <count>]
+```
+
+- `audit cleanup` は retention と row cap に基づいて監査ログを整理します
+- 削除件数は `audit_cleanup` event の metadata に記録されます
+- CLI の管理操作は監査ログに記録されます
+- plain API key / password は CLI 監査 metadata では redact されます
 
 ### User
 
