@@ -1,5 +1,6 @@
 #include "ip_command.h"
 
+#include "audit_logging.h"
 #include "auth_core/ip_rule_record.h"
 #include "cli_support.h"
 
@@ -15,7 +16,10 @@ using roche_limit::auth_store::NewIpServiceLevel;
 using roche_limit::auth_store::RuleRepository;
 using roche_limit::auth_store::UpdateIpRule;
 
-void handle_ip_command(const RuleRepository& repository, const std::vector<std::string>& args) {
+void handle_ip_command(
+    const RuleRepository& repository,
+    const roche_limit::auth_store::AuditRepository& audit_repository,
+    const std::vector<std::string>& args) {
     if (args.size() < 3) {
         fail("missing ip subcommand");
     }
@@ -62,7 +66,10 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
         if (args.size() < 4) {
             fail("missing ip rule id");
         }
-        repository.delete_ip_rule(parse_int64(args[3], "ip rule id"));
+        const auto rule_id = parse_int64(args[3], "ip rule id");
+        repository.delete_ip_rule(rule_id);
+        audit_cli_success(audit_repository, "cli_ip_remove", "ip_rule",
+                          std::to_string(rule_id), args);
         std::cout << "deleted ip rule\n";
         return;
     }
@@ -70,6 +77,8 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
     if (action == "compact-ids") {
         require_experimental_cli("ip compact-ids");
         repository.compact_ip_ids();
+        audit_cli_success(audit_repository, "cli_ip_compact_ids", "ip_rule",
+                          std::nullopt, args);
         std::cout << "compacted ip ids\n";
         return;
     }
@@ -96,6 +105,8 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
             .effect = allow ? IpRuleEffect::Allow : IpRuleEffect::Deny,
             .note = optional_option(options, "--note"),
         });
+        audit_cli_success(audit_repository, "cli_ip_add", "ip_rule",
+                          std::to_string(rule_id), args);
         std::cout << "created ip rule id=" << rule_id << '\n';
         return;
     }
@@ -116,6 +127,8 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
             .access_level = parse_int(require_option(options, "--level"), "--level"),
             .note = optional_option(options, "--note"),
         });
+        audit_cli_success(audit_repository, "cli_ip_service_level_upsert",
+                          "ip_service_level", std::to_string(record_id), args);
         std::cout << "upserted ip service level id=" << record_id << '\n';
         return;
     }
@@ -181,6 +194,8 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
             .access_level = access_level,
             .note = optional_option(options, "--note"),
         });
+        audit_cli_success(audit_repository, "cli_ip_service_level_upsert",
+                          "ip_service_level", std::to_string(record_id), args);
         std::cout << "upserted ip service level id=" << record_id << '\n';
         return;
     }
@@ -206,6 +221,8 @@ void handle_ip_command(const RuleRepository& repository, const std::vector<std::
         update_ip_rule.effect = allow ? IpRuleEffect::Allow : IpRuleEffect::Deny;
     }
     repository.update_ip_rule(parse_int64(target, "ip rule id"), update_ip_rule);
+    audit_cli_success(audit_repository, "cli_ip_update", "ip_rule", target,
+                      args);
     std::cout << "updated ip rule\n";
 }
 

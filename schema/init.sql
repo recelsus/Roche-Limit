@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS api_keys (
     access_level INTEGER NOT NULL CHECK (access_level >= 0),
     enabled INTEGER NOT NULL DEFAULT 1,
     expires_at TEXT,
+    last_used_at TEXT,
+    last_used_ip TEXT,
+    last_failed_at TEXT,
+    failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
     note TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -126,7 +130,9 @@ CREATE TABLE IF NOT EXISTS audit_events (
     request_id TEXT,
     result TEXT NOT NULL,
     reason TEXT,
-    metadata_json TEXT
+    metadata_json TEXT,
+    prev_event_hash TEXT,
+    event_hash TEXT NOT NULL UNIQUE
 );
 
 CREATE INDEX IF NOT EXISTS idx_ip_rules_effect_enabled
@@ -143,6 +149,10 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_key_lookup_hash
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_key_lookup_hash_service_enabled
     ON api_keys (key_lookup_hash, service_name, enabled);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_prefix_unique
+    ON api_keys (key_prefix)
+    WHERE key_prefix IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_users_username_enabled
     ON users (username, enabled);
@@ -176,3 +186,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_type_created_at
 
 CREATE INDEX IF NOT EXISTS idx_audit_events_request_id
     ON audit_events (request_id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_prev_event_hash
+    ON audit_events (prev_event_hash);

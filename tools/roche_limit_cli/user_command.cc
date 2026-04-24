@@ -1,5 +1,6 @@
 #include "user_command.h"
 
+#include "audit_logging.h"
 #include "auth_core/password_hasher.h"
 #include "cli_support.h"
 
@@ -12,7 +13,10 @@ using roche_limit::auth_store::NewUserServiceLevel;
 using roche_limit::auth_store::UpdateUserRecord;
 using roche_limit::auth_store::UserRepository;
 
-void handle_user_command(const UserRepository& repository, const std::vector<std::string>& args) {
+void handle_user_command(
+    const UserRepository& repository,
+    const roche_limit::auth_store::AuditRepository& audit_repository,
+    const std::vector<std::string>& args) {
     if (args.size() < 3) {
         fail("missing user subcommand");
     }
@@ -79,6 +83,8 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
     if (action == "compact-ids") {
         require_experimental_cli("user compact-ids");
         repository.compact_user_ids();
+        audit_cli_success(audit_repository, "cli_user_compact_ids", "user",
+                          std::nullopt, args);
         std::cout << "compacted user ids\n";
         return;
     }
@@ -90,13 +96,19 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
     }
 
     if (action == "revoke-session") {
-        repository.revoke_user_session_by_id(parse_int64(args[3], "session id"));
+        const auto session_id = parse_int64(args[3], "session id");
+        repository.revoke_user_session_by_id(session_id);
+        audit_cli_success(audit_repository, "cli_user_revoke_session", "session",
+                          std::to_string(session_id), args);
         std::cout << "revoked session\n";
         return;
     }
 
     if (action == "revoke-all-sessions") {
-        repository.revoke_all_user_sessions(parse_int64(args[3], "user id"));
+        const auto user_id = parse_int64(args[3], "user id");
+        repository.revoke_all_user_sessions(user_id);
+        audit_cli_success(audit_repository, "cli_user_revoke_all_sessions", "user",
+                          std::to_string(user_id), args);
         std::cout << "revoked all user sessions\n";
         return;
     }
@@ -112,6 +124,8 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
         });
         const auto password = option_or_prompt_password(options);
         repository.upsert_user_credential(user_id, roche_limit::auth_core::hash_password(password));
+        audit_cli_success(audit_repository, "cli_user_add", "user",
+                          std::to_string(user_id), args);
         std::cout << "created user id=" << user_id << '\n';
         return;
     }
@@ -123,6 +137,8 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
         repository.upsert_user_credential(user_id,
                                           roche_limit::auth_core::hash_password(password));
         repository.revoke_all_user_sessions(user_id);
+        audit_cli_success(audit_repository, "cli_user_set_password", "user",
+                          std::to_string(user_id), args);
         std::cout << "updated user password\n";
         return;
     }
@@ -133,12 +149,17 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
             .enabled = false,
         });
         repository.revoke_all_user_sessions(user_id);
+        audit_cli_success(audit_repository, "cli_user_disable", "user",
+                          std::to_string(user_id), args);
         std::cout << "disabled user\n";
         return;
     }
 
     if (action == "remove") {
-        repository.delete_user(parse_int64(args[3], "user id"));
+        const auto user_id = parse_int64(args[3], "user id");
+        repository.delete_user(user_id);
+        audit_cli_success(audit_repository, "cli_user_remove", "user",
+                          std::to_string(user_id), args);
         std::cout << "deleted user\n";
         return;
     }
@@ -162,6 +183,10 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
             .note = optional_option(options, "--note"),
         });
         repository.revoke_all_user_sessions(user_id);
+        audit_cli_success(audit_repository, "cli_user_service_level_upsert",
+                          "user", std::to_string(user_id), args,
+                          std::string("{\"record_id\":") +
+                              std::to_string(record_id) + "}");
         std::cout << "upserted user service level id=" << record_id << '\n';
         return;
     }
@@ -181,6 +206,8 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
     if (enable || disable) {
         repository.revoke_all_user_sessions(user_id);
     }
+    audit_cli_success(audit_repository, "cli_user_update", "user",
+                      std::to_string(user_id), args);
     std::cout << "updated user\n";
 }
 

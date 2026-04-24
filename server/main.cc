@@ -44,6 +44,18 @@ int main(int argc, char *argv[]) {
   try {
     audit_repository->cleanup(config.audit_retention_days,
                               config.audit_max_rows);
+    audit_repository->insert_event(roche_limit::auth_store::NewAuditEvent{
+        .event_type = "server_config_loaded",
+        .actor_type = "system",
+        .result = "success",
+        .metadata_json =
+            std::string("{\"audit_retention_days\":") +
+            std::to_string(config.audit_retention_days) +
+            ",\"audit_max_rows\":" + std::to_string(config.audit_max_rows) +
+            ",\"verbose_logging\":" +
+            (roche_limit::common::verbose_logging_enabled() ? "true" : "false") +
+            "}",
+    });
   } catch (const std::exception &ex) {
     std::cerr << "audit cleanup failed: " << ex.what() << std::endl;
   }
