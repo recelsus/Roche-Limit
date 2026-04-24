@@ -16,7 +16,7 @@ namespace roche_limit::auth_store {
 namespace {
 
 constexpr int kLatestSchemaVersion = 1;
-constexpr int kLatestMigrationVersion = 4;
+constexpr int kLatestMigrationVersion = 5;
 
 std::filesystem::path source_root() {
 #ifdef ROCHE_LIMIT_SOURCE_DIR

@@ -17,6 +17,10 @@ services:
       # ROCHE_LIMIT_SESSION_COOKIE_SAMESITE: "Lax"
       # ROCHE_LIMIT_SESSION_COOKIE_SECURE: "1"
       # ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE: "604800"
+      # ROCHE_LIMIT_SESSION_TOKEN_PEPPER: "change-me-another-random-secret"
+      # ROCHE_LIMIT_SESSION_IDLE_TIMEOUT_SECONDS: "3600"
+      # ROCHE_LIMIT_SESSION_ABSOLUTE_TIMEOUT_SECONDS: "604800"
+      # ROCHE_LIMIT_SESSION_ROTATION_INTERVAL_SECONDS: "86400"
 
     # Test only.
     # In production, remove `ports` and place this container on the same

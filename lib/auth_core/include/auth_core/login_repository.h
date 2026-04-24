@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace roche_limit::auth_core {
 
@@ -22,9 +23,16 @@ public:
         std::string_view session_token_hash) const = 0;
     virtual std::int64_t insert_user_session(std::int64_t user_id,
                                              std::string_view session_token_hash,
-                                             std::string_view expires_at) const = 0;
-    virtual void update_user_session_last_seen(std::int64_t session_id) const = 0;
+                                             std::string_view absolute_expires_at,
+                                             std::string_view idle_expires_at,
+                                             std::string_view last_rotated_at) const = 0;
+    virtual void update_user_session_activity(std::int64_t session_id,
+                                              std::string_view idle_expires_at) const = 0;
     virtual void revoke_user_session(std::string_view session_token_hash) const = 0;
+    virtual void revoke_user_session_by_id(std::int64_t session_id) const = 0;
+    virtual void revoke_all_user_sessions(std::int64_t user_id) const = 0;
+    virtual std::vector<UserSessionRecord> list_user_sessions(
+        std::optional<std::int64_t> user_id) const = 0;
     virtual std::optional<LoginFailureRecord> find_login_failure(
         std::string_view client_ip,
         std::string_view username) const = 0;

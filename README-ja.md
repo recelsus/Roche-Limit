@@ -123,6 +123,14 @@ Session cookie は環境変数で変更できます。
   既定値: `1`
 - `ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE`
   既定値: `604800`
+- `ROCHE_LIMIT_SESSION_TOKEN_PEPPER`
+  未設定時は `ROCHE_LIMIT_API_KEY_PEPPER` を流用
+- `ROCHE_LIMIT_SESSION_IDLE_TIMEOUT_SECONDS`
+  既定値: `3600`
+- `ROCHE_LIMIT_SESSION_ABSOLUTE_TIMEOUT_SECONDS`
+  既定値: `604800`
+- `ROCHE_LIMIT_SESSION_ROTATION_INTERVAL_SECONDS`
+  既定値: `86400`
 
 Cookie 設定には起動時検証があります。
 
@@ -130,6 +138,9 @@ Cookie 設定には起動時検証があります。
 - `SameSite=None` の場合は `Secure` を強制します
 - `__Host-` prefix は `Secure`, `Path=/`, `Domain` 未設定が必須です
 - `__Secure-` prefix は `Secure` が必須です
+
+session は idle timeout / absolute timeout を別で持ちます。  
+rotation interval を超えた session は `session_rotation_required` で deny され、再 login を要求します。
 
 ## Response Headers
 

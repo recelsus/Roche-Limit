@@ -124,6 +124,14 @@ Session cookie settings can be overridden with environment variables:
   Default: `1`
 - `ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE`
   Default: `604800`
+- `ROCHE_LIMIT_SESSION_TOKEN_PEPPER`
+  When unset, Roche-Limit reuses `ROCHE_LIMIT_API_KEY_PEPPER`
+- `ROCHE_LIMIT_SESSION_IDLE_TIMEOUT_SECONDS`
+  Default: `3600`
+- `ROCHE_LIMIT_SESSION_ABSOLUTE_TIMEOUT_SECONDS`
+  Default: `604800`
+- `ROCHE_LIMIT_SESSION_ROTATION_INTERVAL_SECONDS`
+  Default: `86400`
 
 Session cookie settings are validated at startup:
 
@@ -131,6 +139,9 @@ Session cookie settings are validated at startup:
 - `SameSite=None` forces `Secure`
 - `__Host-` cookies require `Secure`, `Path=/`, and no `Domain`
 - `__Secure-` cookies require `Secure`
+
+Sessions track idle timeout and absolute timeout separately.  
+When the rotation interval is exceeded, the session is denied with `session_rotation_required` and the user must sign in again.
 
 ## Response Headers
 

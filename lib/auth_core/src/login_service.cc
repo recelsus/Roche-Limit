@@ -11,6 +11,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
@@ -25,11 +26,13 @@ namespace roche_limit::auth_core {
 
 namespace {
 
-constexpr int kSessionPeriodDays = 7;
 constexpr int kCsrfTokenTtlMinutes = 10;
 constexpr int kLoginLockoutThreshold = 8;
 constexpr int kLoginLockoutSeconds = 900;
 constexpr int kMaxBackoffSeconds = 300;
+constexpr int kDefaultSessionIdleTimeoutSeconds = 3600;
+constexpr int kDefaultSessionAbsoluteTimeoutSeconds = 604800;
+constexpr int kDefaultSessionRotationIntervalSeconds = 86400;
 constexpr std::string_view kCsrfPurposeLogin = "login";
 constexpr std::string_view kCsrfPurposeLogout = "logout";
 
@@ -87,7 +90,13 @@ std::string generate_session_token() { return generate_random_token(24); }
 std::string generate_csrf_token() { return generate_random_token(24); }
 
 std::string session_token_hash(std::string_view session_token) {
-  return roche_limit::common::sha256_hex(session_token);
+  const char* dedicated_pepper = std::getenv("ROCHE_LIMIT_SESSION_TOKEN_PEPPER");
+  const char* fallback_pepper = std::getenv("ROCHE_LIMIT_API_KEY_PEPPER");
+  const std::string_view pepper =
+      (dedicated_pepper != nullptr && *dedicated_pepper != '\0')
+          ? std::string_view(dedicated_pepper)
+          : std::string_view(fallback_pepper != nullptr ? fallback_pepper : "");
+  return roche_limit::common::hmac_sha256_hex(pepper, "session:" + std::string(session_token));
 }
 
 std::string csrf_token_hash(std::string_view csrf_token) {
@@ -97,6 +106,34 @@ std::string csrf_token_hash(std::string_view csrf_token) {
 bool session_is_expired(std::string_view expires_at) {
   return expires_at.empty() ||
          expires_at <= format_timestamp(std::chrono::system_clock::now());
+}
+
+int env_timeout_or_default(const char* name, int fallback) {
+  const char* value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return fallback;
+  }
+  try {
+    const int parsed = std::stoi(value);
+    return parsed > 0 ? parsed : fallback;
+  } catch (...) {
+    return fallback;
+  }
+}
+
+int session_idle_timeout_seconds() {
+  return env_timeout_or_default("ROCHE_LIMIT_SESSION_IDLE_TIMEOUT_SECONDS",
+                                kDefaultSessionIdleTimeoutSeconds);
+}
+
+int session_absolute_timeout_seconds() {
+  return env_timeout_or_default("ROCHE_LIMIT_SESSION_ABSOLUTE_TIMEOUT_SECONDS",
+                                kDefaultSessionAbsoluteTimeoutSeconds);
+}
+
+int session_rotation_interval_seconds() {
+  return env_timeout_or_default("ROCHE_LIMIT_SESSION_ROTATION_INTERVAL_SECONDS",
+                                kDefaultSessionRotationIntervalSeconds);
 }
 
 bool is_ip_denied(const AuthRepository &auth_repository,
@@ -333,17 +370,21 @@ LoginResult LoginService::login(const LoginRequest &request) const {
   login_repository_->clear_login_failure(request.client_ip, request.username);
   const auto session_token = generate_session_token();
   const auto session_hash = session_token_hash(session_token);
-  const auto expires_at =
-      format_timestamp(std::chrono::system_clock::now() +
-                       std::chrono::hours(24 * kSessionPeriodDays));
-  login_repository_->insert_user_session(user->id, session_hash, expires_at);
+  const auto absolute_expires_at = format_timestamp(
+      now + std::chrono::seconds(session_absolute_timeout_seconds()));
+  const auto idle_expires_at = format_timestamp(
+      now + std::chrono::seconds(session_idle_timeout_seconds()));
+  const auto rotated_at = format_timestamp(now);
+  login_repository_->insert_user_session(user->id, session_hash,
+                                         absolute_expires_at, idle_expires_at,
+                                         rotated_at);
 
   return LoginResult{
       .decision = LoginDecision::Allow,
       .reason = auth_reason::LoginSuccess,
       .user_id = user->id,
       .session_token = session_token,
-      .expires_at = expires_at,
+      .expires_at = absolute_expires_at,
   };
 }
 
@@ -392,12 +433,27 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
         .reason = auth_reason::InvalidSession,
     };
   }
-  if (session_is_expired(session->expires_at)) {
+  if (session_is_expired(session->absolute_expires_at) ||
+      session_is_expired(session->idle_expires_at)) {
     login_repository_->revoke_user_session(session->session_token_hash);
     return SessionAuthResult{
         .decision = LoginDecision::Deny,
         .access_level = 0,
         .reason = auth_reason::ExpiredSession,
+        .session_id = session->id,
+    };
+  }
+  const auto now = std::chrono::system_clock::now();
+  if (const auto rotated_at = parse_timestamp(session->last_rotated_at);
+      rotated_at.has_value() &&
+      *rotated_at +
+              std::chrono::seconds(session_rotation_interval_seconds()) <=
+          now) {
+    login_repository_->revoke_user_session(session->session_token_hash);
+    return SessionAuthResult{
+        .decision = LoginDecision::Deny,
+        .access_level = 0,
+        .reason = auth_reason::SessionRotationRequired,
         .session_id = session->id,
     };
   }
@@ -430,7 +486,9 @@ LoginService::authorize_session(const SessionAuthRequest &request) const {
     };
   }
 
-  login_repository_->update_user_session_last_seen(session->id);
+  login_repository_->update_user_session_activity(
+      session->id,
+      format_timestamp(now + std::chrono::seconds(session_idle_timeout_seconds())));
 
   const bool session_level_allowed =
       access_level_satisfies(access_level, std::nullopt);

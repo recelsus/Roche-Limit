@@ -113,7 +113,7 @@ void test_bootstrap_creates_current_schema() {
   expect(connection.table_exists("csrf_tokens"),
          "csrf_tokens table should exist");
   expect(scalar_text(database_path, "SELECT value FROM schema_metadata WHERE "
-                                    "key = 'migration_version';") == "4",
+                                    "key = 'migration_version';") == "5",
          "new schema should mark latest migration version");
 }
 
@@ -160,7 +160,7 @@ CREATE TABLE api_keys (
   expect(connection.table_exists("csrf_tokens"),
          "migration should add csrf_tokens table");
   expect(scalar_text(database_path, "SELECT value FROM schema_metadata WHERE "
-                                    "key = 'migration_version';") == "4",
+                                    "key = 'migration_version';") == "5",
          "migration should store latest migration version");
 }
 
@@ -232,7 +232,7 @@ void test_ip_remove_deletes_service_levels() {
          "dependent ip service levels should be deleted");
 }
 
-void test_user_session_expiry_is_enforced_by_repository() {
+void test_user_session_lookup_returns_non_revoked_rows() {
   const auto database_path = test_database_path("session-expiry");
   reset_database(database_path);
   roche_limit::auth_store::bootstrap_sqlite_schema_at(database_path, {});
@@ -251,13 +251,17 @@ void test_user_session_expiry_is_enforced_by_repository() {
 
   const auto active_hash = roche_limit::common::sha256_hex("active-session");
   const auto expired_hash = roche_limit::common::sha256_hex("expired-session");
-  repository.insert_user_session(user_id, active_hash, "2099-01-01 00:00:00");
-  repository.insert_user_session(user_id, expired_hash, "2000-01-01 00:00:00");
+  repository.insert_user_session(user_id, active_hash, "2099-01-01 00:00:00",
+                                 "2099-01-01 00:00:00",
+                                 "2099-01-01 00:00:00");
+  repository.insert_user_session(user_id, expired_hash, "2000-01-01 00:00:00",
+                                 "2000-01-01 00:00:00",
+                                 "2000-01-01 00:00:00");
 
   expect(repository.find_active_user_session(active_hash).has_value(),
-         "future session should be active");
-  expect(!repository.find_active_user_session(expired_hash).has_value(),
-         "expired session should not be active");
+         "future session should be returned");
+  expect(repository.find_active_user_session(expired_hash).has_value(),
+         "expiry checks are handled by the service layer");
 }
 
 void test_audit_cleanup_records_event_and_enforces_row_cap() {
@@ -291,7 +295,7 @@ int main() {
   test_legacy_key_plain_column_is_migrated();
   test_api_key_repository_stores_hash_and_prefix_only();
   test_ip_remove_deletes_service_levels();
-  test_user_session_expiry_is_enforced_by_repository();
+  test_user_session_lookup_returns_non_revoked_rows();
   test_audit_cleanup_records_event_and_enforces_row_cap();
   std::cout << "roche_limit_auth_store_integration_tests: ok" << std::endl;
   return 0;

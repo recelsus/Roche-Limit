@@ -141,13 +141,17 @@ struct FakeLoginRepository final : LoginRepository {
 
   std::int64_t insert_user_session(std::int64_t user_id,
                                    std::string_view session_token_hash,
-                                   std::string_view expires_at) const override {
+                                   std::string_view absolute_expires_at,
+                                   std::string_view idle_expires_at,
+                                   std::string_view last_rotated_at) const override {
     sessions.push_back(UserSessionRecord{
         .id = next_session_id,
         .session_token_hash = std::string(session_token_hash),
         .user_id = user_id,
-        .expires_at = std::string(expires_at),
+        .absolute_expires_at = std::string(absolute_expires_at),
+        .idle_expires_at = std::string(idle_expires_at),
         .last_seen_at = "",
+        .last_rotated_at = std::string(last_rotated_at),
         .revoked_at = std::nullopt,
         .created_at = "",
         .updated_at = "",
@@ -155,9 +159,15 @@ struct FakeLoginRepository final : LoginRepository {
     return next_session_id++;
   }
 
-  void update_user_session_last_seen(std::int64_t session_id) const override {
+  void update_user_session_activity(std::int64_t session_id,
+                                    std::string_view idle_expires_at) const override {
     last_seen_updated = true;
     last_seen_session_id = session_id;
+    for (auto& session : sessions) {
+      if (session.id == session_id) {
+        session.idle_expires_at = std::string(idle_expires_at);
+      }
+    }
   }
 
   void revoke_user_session(std::string_view session_token_hash) const override {
@@ -168,6 +178,38 @@ struct FakeLoginRepository final : LoginRepository {
         session.revoked_at = "2099-01-01 00:00:00";
       }
     }
+  }
+
+  void revoke_user_session_by_id(std::int64_t session_id) const override {
+    session_revoked = true;
+    for (auto& session : sessions) {
+      if (session.id == session_id) {
+        session.revoked_at = "2099-01-01 00:00:00";
+      }
+    }
+  }
+
+  void revoke_all_user_sessions(std::int64_t user_id) const override {
+    session_revoked = true;
+    for (auto& session : sessions) {
+      if (session.user_id == user_id) {
+        session.revoked_at = "2099-01-01 00:00:00";
+      }
+    }
+  }
+
+  std::vector<UserSessionRecord> list_user_sessions(
+      std::optional<std::int64_t> user_id) const override {
+    if (!user_id.has_value()) {
+      return sessions;
+    }
+    std::vector<UserSessionRecord> filtered;
+    for (const auto& session : sessions) {
+      if (session.user_id == *user_id) {
+        filtered.push_back(session);
+      }
+    }
+    return filtered;
   }
 
   std::optional<LoginFailureRecord> find_login_failure(
@@ -277,6 +319,11 @@ void add_login_csrf_token(FakeLoginRepository& repository,
                                roche_limit::common::sha256_hex(kLoginCsrfToken),
                                client_ip,
                                "2099-01-01 00:00:00");
+}
+
+std::string session_hash(std::string_view token) {
+  return roche_limit::common::hmac_sha256_hex("",
+                                              "session:" + std::string(token));
 }
 
 IpRuleRecord make_deny_rule(std::string value_text) {
@@ -576,10 +623,12 @@ void test_session_auth_uses_service_fallback() {
   });
   login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
-      .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+      .session_token_hash = session_hash("session-token"),
       .user_id = 20,
-      .expires_at = "2099-01-01 00:00:00",
+      .absolute_expires_at = "2099-01-01 00:00:00",
+      .idle_expires_at = "2099-01-01 00:00:00",
       .last_seen_at = "",
+      .last_rotated_at = "2099-01-01 00:00:00",
       .revoked_at = std::nullopt,
       .created_at = "",
       .updated_at = "",
@@ -636,10 +685,12 @@ void test_session_auth_prefers_exact_service_over_fallback() {
   });
   login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
-      .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+      .session_token_hash = session_hash("session-token"),
       .user_id = 21,
-      .expires_at = "2099-01-01 00:00:00",
+      .absolute_expires_at = "2099-01-01 00:00:00",
+      .idle_expires_at = "2099-01-01 00:00:00",
       .last_seen_at = "",
+      .last_rotated_at = "2099-01-01 00:00:00",
       .revoked_at = std::nullopt,
       .created_at = "",
       .updated_at = "",
@@ -672,10 +723,12 @@ void test_session_auth_denies_when_no_matching_service_level_exists() {
   });
   login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
-      .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+      .session_token_hash = session_hash("session-token"),
       .user_id = 22,
-      .expires_at = "2099-01-01 00:00:00",
+      .absolute_expires_at = "2099-01-01 00:00:00",
+      .idle_expires_at = "2099-01-01 00:00:00",
       .last_seen_at = "",
+      .last_rotated_at = "2099-01-01 00:00:00",
       .revoked_at = std::nullopt,
       .created_at = "",
       .updated_at = "",
@@ -771,10 +824,12 @@ void test_session_auth_rejects_expired_session() {
   auto login_repository = std::make_shared<FakeLoginRepository>();
   login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
-      .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+      .session_token_hash = session_hash("session-token"),
       .user_id = 22,
-      .expires_at = "2000-01-01 00:00:00",
+      .absolute_expires_at = "2000-01-01 00:00:00",
+      .idle_expires_at = "2000-01-01 00:00:00",
       .last_seen_at = "",
+      .last_rotated_at = "2000-01-01 00:00:00",
       .revoked_at = std::nullopt,
       .created_at = "",
       .updated_at = "",
@@ -798,15 +853,95 @@ void test_session_auth_rejects_expired_session() {
          "expired session should not update last seen");
 }
 
+void test_session_auth_rejects_idle_expired_session() {
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->sessions.push_back(UserSessionRecord{
+      .id = 1,
+      .session_token_hash = session_hash("session-token"),
+      .user_id = 22,
+      .absolute_expires_at = "2099-01-01 00:00:00",
+      .idle_expires_at = "2000-01-01 00:00:00",
+      .last_seen_at = "",
+      .last_rotated_at = "2099-01-01 00:00:00",
+      .revoked_at = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  });
+  LoginService service(auth_repository, login_repository);
+
+  const auto result = service.authorize_session(SessionAuthRequest{
+      .client_ip = "198.51.100.20",
+      .service_name = "web",
+      .required_access_level = 60,
+      .session_token = std::string("session-token"),
+  });
+
+  expect(result.decision == LoginDecision::Deny,
+         "idle-expired session should be denied");
+  expect(result.reason == "expired_session",
+         "idle-expired session should report expired_session");
+}
+
+void test_session_auth_requires_rotation_after_interval() {
+  auto auth_repository = std::make_shared<FakeAuthRepository>();
+  auto login_repository = std::make_shared<FakeLoginRepository>();
+  login_repository->users.push_back(UserRecord{
+      .id = 22,
+      .username = "alice",
+      .enabled = true,
+      .note = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  });
+  login_repository->service_levels.push_back(UserServiceLevelRecord{
+      .id = 1,
+      .user_id = 22,
+      .service_name = "web",
+      .access_level = 60,
+      .enabled = true,
+      .note = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  });
+  login_repository->sessions.push_back(UserSessionRecord{
+      .id = 1,
+      .session_token_hash = session_hash("session-token"),
+      .user_id = 22,
+      .absolute_expires_at = "2099-01-01 00:00:00",
+      .idle_expires_at = "2099-01-01 00:00:00",
+      .last_seen_at = "",
+      .last_rotated_at = "2000-01-01 00:00:00",
+      .revoked_at = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  });
+  LoginService service(auth_repository, login_repository);
+
+  const auto result = service.authorize_session(SessionAuthRequest{
+      .client_ip = "198.51.100.20",
+      .service_name = "web",
+      .required_access_level = 60,
+      .session_token = std::string("session-token"),
+  });
+
+  expect(result.decision == LoginDecision::Deny,
+         "stale session should require rotation");
+  expect(result.reason == "session_rotation_required",
+         "stale session should report rotation required");
+}
+
 void test_logout_revokes_existing_session() {
   auto auth_repository = std::make_shared<FakeAuthRepository>();
   auto login_repository = std::make_shared<FakeLoginRepository>();
   login_repository->sessions.push_back(UserSessionRecord{
       .id = 1,
-      .session_token_hash = roche_limit::common::sha256_hex("session-token"),
+      .session_token_hash = session_hash("session-token"),
       .user_id = 22,
-      .expires_at = "2099-01-01 00:00:00",
+      .absolute_expires_at = "2099-01-01 00:00:00",
+      .idle_expires_at = "2099-01-01 00:00:00",
       .last_seen_at = "",
+      .last_rotated_at = "2099-01-01 00:00:00",
       .revoked_at = std::nullopt,
       .created_at = "",
       .updated_at = "",
@@ -818,7 +953,7 @@ void test_logout_revokes_existing_session() {
   expect(login_repository->session_revoked, "logout should revoke the session");
   expect(login_repository->revoked_session_hash.has_value() &&
              *login_repository->revoked_session_hash ==
-                 roche_limit::common::sha256_hex("session-token"),
+                 session_hash("session-token"),
          "logout should revoke by hashed token");
 
   const auto result = service.authorize_session(SessionAuthRequest{
@@ -853,6 +988,8 @@ int main() {
   test_session_auth_requires_session_when_ip_level_is_insufficient();
   test_session_auth_rejects_invalid_session();
   test_session_auth_rejects_expired_session();
+  test_session_auth_rejects_idle_expired_session();
+  test_session_auth_requires_rotation_after_interval();
   test_logout_revokes_existing_session();
   std::cout << "roche_limit_login_service_tests: ok" << std::endl;
   return 0;

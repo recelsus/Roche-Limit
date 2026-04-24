@@ -49,6 +49,9 @@ roche_limit_cli user add <username> [--password <plain>] [--note TEXT]
 roche_limit_cli user set-password <user-id> [--password <plain>]
 roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable]
 roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT]
+roche_limit_cli user session-list [--user-id <id>]
+roche_limit_cli user revoke-session <session-id>
+roche_limit_cli user revoke-all-sessions <user-id>
 roche_limit_cli user disable <user-id>
 roche_limit_cli user remove <user-id>
 ```
@@ -56,9 +59,13 @@ roche_limit_cli user remove <user-id>
 - `user add` はユーザー本体と password credential を作成する
 - `user set-password` は credential のみ更新する
 - `user set --service ... --level ...` は `user_service_levels` の upsert
+- password 変更、enable/disable、service level 変更時はその user の全 session を revoke する
+- `user session-list` は session 一覧を表示する
+- `user revoke-session` は 1 session を revoke する
+- `user revoke-all-sessions` は user 配下の全 session を revoke する
 - user の service 解決は `service一致 -> * -> 0`
 - `user remove` は user 配下の credential / service level / session も含めて削除される
-- session は `expires_at` を持ち、期限切れ session は認可時に拒否される
+- session は absolute timeout / idle timeout を別で持ち、rotation interval 超過時は再 login を要求する
 
 ### List
 

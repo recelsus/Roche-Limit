@@ -243,6 +243,9 @@ void print_usage() {
               << "  roche_limit_cli user set-password <user-id> [--password <plain>]\n"
               << "  roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable]\n"
               << "  roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT]\n"
+              << "  roche_limit_cli user session-list [--user-id <id>]\n"
+              << "  roche_limit_cli user revoke-session <session-id>\n"
+              << "  roche_limit_cli user revoke-all-sessions <user-id>\n"
               << "  roche_limit_cli user disable <user-id>\n"
               << "  roche_limit_cli user remove <user-id>\n";
     if (experimental_cli_enabled()) {

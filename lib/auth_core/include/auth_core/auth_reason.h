@@ -22,6 +22,7 @@ inline constexpr auto MissingService = "missing_service";
 inline constexpr auto MissingSession = "missing_session";
 inline constexpr auto RateLimited = "rate_limited";
 inline constexpr auto SessionAllow = "session_allow";
+inline constexpr auto SessionRotationRequired = "session_rotation_required";
 inline constexpr auto UnknownIp = "unknown_ip";
 inline constexpr auto InsufficientLevel = "insufficient_level";
 

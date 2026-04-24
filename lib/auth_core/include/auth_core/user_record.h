@@ -38,8 +38,10 @@ struct UserSessionRecord {
     std::int64_t id;
     std::string session_token_hash;
     std::int64_t user_id;
-    std::string expires_at;
+    std::string absolute_expires_at;
+    std::string idle_expires_at;
     std::string last_seen_at;
+    std::string last_rotated_at;
     std::optional<std::string> revoked_at;
     std::string created_at;
     std::string updated_at;

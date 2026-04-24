@@ -45,9 +45,16 @@ public:
         std::string_view session_token_hash) const override;
     std::int64_t insert_user_session(std::int64_t user_id,
                                      std::string_view session_token_hash,
-                                     std::string_view expires_at) const override;
-    void update_user_session_last_seen(std::int64_t session_id) const override;
+                                     std::string_view absolute_expires_at,
+                                     std::string_view idle_expires_at,
+                                     std::string_view last_rotated_at) const override;
+    void update_user_session_activity(std::int64_t session_id,
+                                      std::string_view idle_expires_at) const override;
     void revoke_user_session(std::string_view session_token_hash) const override;
+    void revoke_user_session_by_id(std::int64_t session_id) const override;
+    void revoke_all_user_sessions(std::int64_t user_id) const override;
+    std::vector<roche_limit::auth_core::UserSessionRecord> list_user_sessions(
+        std::optional<std::int64_t> user_id) const override;
     std::optional<roche_limit::auth_core::LoginFailureRecord> find_login_failure(
         std::string_view client_ip,
         std::string_view username) const override;

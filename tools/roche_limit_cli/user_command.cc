@@ -50,6 +50,32 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
         return;
     }
 
+    if (action == "session-list") {
+        const auto options = parse_options(args, 3);
+        const auto sessions = repository.list_user_sessions(
+            optional_option(options, "--user-id").has_value()
+                ? std::optional<std::int64_t>(
+                      parse_int64(*optional_option(options, "--user-id"),
+                                  "user id"))
+                : std::nullopt);
+        std::vector<std::vector<std::string>> rows;
+        for (const auto& session : sessions) {
+            rows.push_back({
+                std::to_string(session.id),
+                std::to_string(session.user_id),
+                session.absolute_expires_at,
+                session.idle_expires_at,
+                session.last_seen_at,
+                session.last_rotated_at,
+                session.revoked_at.has_value() ? *session.revoked_at : "-",
+            });
+        }
+        print_table({"id", "user_id", "absolute_expires_at", "idle_expires_at",
+                     "last_seen_at", "last_rotated_at", "revoked_at"},
+                    rows);
+        return;
+    }
+
     if (action == "compact-ids") {
         require_experimental_cli("user compact-ids");
         repository.compact_user_ids();
@@ -61,6 +87,18 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
         if (args.size() < 4) {
             fail("missing user id");
         }
+    }
+
+    if (action == "revoke-session") {
+        repository.revoke_user_session_by_id(parse_int64(args[3], "session id"));
+        std::cout << "revoked session\n";
+        return;
+    }
+
+    if (action == "revoke-all-sessions") {
+        repository.revoke_all_user_sessions(parse_int64(args[3], "user id"));
+        std::cout << "revoked all user sessions\n";
+        return;
     }
 
     if (action == "add") {
@@ -81,16 +119,20 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
     if (action == "set-password") {
         const auto options = parse_options(args, 4);
         const auto password = option_or_prompt_password(options);
-        repository.upsert_user_credential(parse_int64(args[3], "user id"),
+        const auto user_id = parse_int64(args[3], "user id");
+        repository.upsert_user_credential(user_id,
                                           roche_limit::auth_core::hash_password(password));
+        repository.revoke_all_user_sessions(user_id);
         std::cout << "updated user password\n";
         return;
     }
 
     if (action == "disable") {
-        repository.update_user(parse_int64(args[3], "user id"), UpdateUserRecord{
+        const auto user_id = parse_int64(args[3], "user id");
+        repository.update_user(user_id, UpdateUserRecord{
             .enabled = false,
         });
+        repository.revoke_all_user_sessions(user_id);
         std::cout << "disabled user\n";
         return;
     }
@@ -119,6 +161,7 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
             .access_level = parse_int(*level_option, "--level"),
             .note = optional_option(options, "--note"),
         });
+        repository.revoke_all_user_sessions(user_id);
         std::cout << "upserted user service level id=" << record_id << '\n';
         return;
     }
@@ -135,6 +178,9 @@ void handle_user_command(const UserRepository& repository, const std::vector<std
         .enabled = enable ? std::optional<bool>(true)
                           : (disable ? std::optional<bool>(false) : std::optional<bool>{}),
     });
+    if (enable || disable) {
+        repository.revoke_all_user_sessions(user_id);
+    }
     std::cout << "updated user\n";
 }
 
