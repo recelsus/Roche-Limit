@@ -106,3 +106,7 @@ settings.local.json
 
 # Docker runtime data
 docker/data/
+
+# Local Codex / planning files
+.codex
+reference/

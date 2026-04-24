@@ -13,9 +13,11 @@
 #include "config/app_config.h"
 #include "crash_handler.h"
 #include "http/auth_controller.h"
+#include "http/client_ip_resolver.h"
 #include "http/login_controller.h"
 #include "http/metrics_controller.h"
 #include "http/root_controller.h"
+#include "http/session_cookie_config.h"
 
 int main(int argc, char *argv[]) {
   using namespace drogon;
@@ -28,6 +30,9 @@ int main(int argc, char *argv[]) {
       roche_limit::auth_store::bootstrap_sqlite_schema(executable_path);
   const auto config = roche_limit::server::config::load_app_config(
       bootstrap_result.database_path);
+  roche_limit::server::http::initialize_proxy_access_config(
+      roche_limit::server::http::load_proxy_access_config_from_env());
+  roche_limit::server::http::initialize_session_cookie_config_from_env();
   auto repository = std::make_shared<roche_limit::auth_store::RuleRepository>(
       config.database_path);
   auto user_repository =

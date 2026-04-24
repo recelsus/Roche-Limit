@@ -77,6 +77,8 @@ nginxの`auth_request`を前提の認証専用サーバー。
 
 - `X-Target-Service`
   必須
+- `X-Required-Level`
+  必須
 - `Authorization: Bearer <token>`
   任意
 - `X-API-Key`
@@ -86,16 +88,18 @@ nginxの`auth_request`を前提の認証専用サーバー。
 - `X-Forwarded-For`
   任意
 
-`X-Target-Service` は必須です。  
+`X-Target-Service` と `X-Required-Level` は必須です。  
 API キーは `Bearer` を優先し、次に `X-API-Key` を参照します。
-必要であれば `X-Required-Level` を nginx から渡し、`/auth` 側で必要レベル判定を行えます。
+`X-Required-Level` の parse に失敗した場合は `403` を返します。
 
 `X-Real-IP` / `X-Forwarded-For` は `ROCHE_LIMIT_TRUSTED_PROXIES` に一致する接続元から来た場合のみ信用します。未設定時は forwarded 系ヘッダを無視し、直接の peer IP を使用します。
+`/auth` と `/session/auth` は `ROCHE_LIMIT_ALLOWED_PEERS` に一致する接続元のみ許可します。未設定時は `ROCHE_LIMIT_TRUSTED_PROXIES` を流用し、両方未設定のときだけ peer 制限なしで動作します。
 
 例:
 
 ```env
 ROCHE_LIMIT_TRUSTED_PROXIES=127.0.0.1,::1,172.18.0.0/16
+ROCHE_LIMIT_ALLOWED_PEERS=127.0.0.1,::1,172.18.0.0/16
 ```
 
 Cookie session は `roche_limit_session` を使用し、既定で `Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800` を付与します。
@@ -116,6 +120,13 @@ Session cookie は環境変数で変更できます。
   既定値: `1`
 - `ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE`
   既定値: `604800`
+
+Cookie 設定には起動時検証があります。
+
+- Cookie 名 / Domain / Path に制御文字は使えません
+- `SameSite=None` の場合は `Secure` を強制します
+- `__Host-` prefix は `Secure`, `Path=/`, `Domain` 未設定が必須です
+- `__Secure-` prefix は `Secure` が必須です
 
 ## Response Headers
 

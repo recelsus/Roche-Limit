@@ -75,6 +75,32 @@ void test_ipv6_trusted_proxy_support() {
     expect(resolved == "2001:db8::42", "trusted IPv6 proxy should allow x-real-ip");
 }
 
+void test_invalid_trusted_proxy_env_fails_fast() {
+    setenv("ROCHE_LIMIT_TRUSTED_PROXIES", "172.18.0.0/16,invalid", 1);
+    bool threw = false;
+    try {
+        static_cast<void>(roche_limit::server::http::load_proxy_access_config_from_env());
+    } catch (...) {
+        threw = true;
+    }
+    expect(threw, "invalid trusted proxy env should fail fast");
+    unsetenv("ROCHE_LIMIT_TRUSTED_PROXIES");
+}
+
+void test_allowed_peers_default_to_trusted_proxies() {
+    setenv("ROCHE_LIMIT_TRUSTED_PROXIES", "172.18.0.0/16", 1);
+    unsetenv("ROCHE_LIMIT_ALLOWED_PEERS");
+    const auto config = roche_limit::server::http::load_proxy_access_config_from_env();
+    expect(config.trusted_proxy_rules.size() == 1, "trusted proxy rule should be loaded");
+    expect(config.allowed_peer_rules.size() == 1, "allowed peers should default to trusted proxies");
+    roche_limit::server::http::initialize_proxy_access_config(config);
+    expect(roche_limit::server::http::is_allowed_auth_peer("172.18.0.3"),
+           "trusted proxy peer should be allowed");
+    expect(!roche_limit::server::http::is_allowed_auth_peer("203.0.113.10"),
+           "non-allowed peer should be denied");
+    unsetenv("ROCHE_LIMIT_TRUSTED_PROXIES");
+}
+
 }  // namespace
 
 int main() {
@@ -84,5 +110,7 @@ int main() {
     test_invalid_trusted_proxy_entries_are_ignored();
     test_trusted_peer_ignores_malformed_forwarded_headers();
     test_ipv6_trusted_proxy_support();
+    test_invalid_trusted_proxy_env_fails_fast();
+    test_allowed_peers_default_to_trusted_proxies();
     return 0;
 }

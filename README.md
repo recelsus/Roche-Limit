@@ -78,6 +78,8 @@ Unknown IPs default to `10`.
 
 - `X-Target-Service`
   Required
+- `X-Required-Level`
+  Required
 - `Authorization: Bearer <token>`
   Optional
 - `X-API-Key`
@@ -87,16 +89,18 @@ Unknown IPs default to `10`.
 - `X-Forwarded-For`
   Optional
 
-`X-Target-Service` is required.  
+`X-Target-Service` and `X-Required-Level` are required.  
 For API keys, `Bearer` is checked first, then `X-API-Key`.
-If needed, nginx may also pass `X-Required-Level`, and `/auth` will enforce the required level directly.
+If `X-Required-Level` cannot be parsed, `/auth` returns `403`.
 
 `X-Real-IP` and `X-Forwarded-For` are trusted only when the direct peer matches `ROCHE_LIMIT_TRUSTED_PROXIES`. If it is not set, forwarded headers are ignored and the peer IP is used.
+`/auth` and `/session/auth` are allowed only from peers matching `ROCHE_LIMIT_ALLOWED_PEERS`. When it is unset, Roche-Limit reuses `ROCHE_LIMIT_TRUSTED_PROXIES`. Only when both are unset are auth endpoints open to any peer.
 
 Example:
 
 ```env
 ROCHE_LIMIT_TRUSTED_PROXIES=127.0.0.1,::1,172.18.0.0/16
+ROCHE_LIMIT_ALLOWED_PEERS=127.0.0.1,::1,172.18.0.0/16
 ```
 
 Cookie sessions use `roche_limit_session` with `Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800` by default.
@@ -117,6 +121,13 @@ Session cookie settings can be overridden with environment variables:
   Default: `1`
 - `ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE`
   Default: `604800`
+
+Session cookie settings are validated at startup:
+
+- Cookie name, domain, and path must not contain control characters
+- `SameSite=None` forces `Secure`
+- `__Host-` cookies require `Secure`, `Path=/`, and no `Domain`
+- `__Secure-` cookies require `Secure`
 
 ## Response Headers
 

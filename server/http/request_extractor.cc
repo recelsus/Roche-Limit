@@ -36,10 +36,9 @@ std::string trim(std::string value) {
 }
 
 std::string extract_client_ip(const drogon::HttpRequestPtr& request) {
-    static const auto trusted_proxy_rules = load_trusted_proxy_rules_from_env();
     static std::atomic_bool warned_untrusted_forwarded_headers{false};
     bool expected = false;
-    if (trusted_proxy_rules.empty() &&
+    if (trusted_proxy_rules().empty() &&
         (!request->getHeader("X-Real-IP").empty() || !request->getHeader("X-Forwarded-For").empty())) {
         if (warned_untrusted_forwarded_headers.compare_exchange_strong(expected, true)) {
             LOG_WARN << "forwarded client IP headers ignored because ROCHE_LIMIT_TRUSTED_PROXIES is unset";
@@ -48,7 +47,7 @@ std::string extract_client_ip(const drogon::HttpRequestPtr& request) {
     return resolve_client_ip(request->peerAddr().toIp(),
                              request->getHeader("X-Real-IP"),
                              request->getHeader("X-Forwarded-For"),
-                             trusted_proxy_rules);
+                             trusted_proxy_rules());
 }
 
 std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request) {
@@ -70,10 +69,16 @@ std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request
     return std::nullopt;
 }
 
-std::optional<int> extract_required_access_level(const drogon::HttpRequestPtr& request) {
-    const auto header_value = trim(request->getHeader("X-Required-Level"));
+}  // namespace
+
+ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view raw_header_value) {
+    const auto header_value = trim(std::string(raw_header_value));
     if (header_value.empty()) {
-        return std::nullopt;
+        return ParsedRequiredAccessLevel{
+            .value = std::nullopt,
+            .present = false,
+            .valid = true,
+        };
     }
 
     int parsed_level = 0;
@@ -81,21 +86,31 @@ std::optional<int> extract_required_access_level(const drogon::HttpRequestPtr& r
     const auto* end = begin + header_value.size();
     const auto result = std::from_chars(begin, end, parsed_level);
     if (result.ec != std::errc{} || result.ptr != end || parsed_level < 0) {
-        return std::nullopt;
+        return ParsedRequiredAccessLevel{
+            .value = std::nullopt,
+            .present = true,
+            .valid = false,
+        };
     }
 
-    return parsed_level;
+    return ParsedRequiredAccessLevel{
+        .value = parsed_level,
+        .present = true,
+        .valid = true,
+    };
 }
-
-}  // namespace
 
 roche_limit::auth_core::RequestContext build_request_context(
     const drogon::HttpRequestPtr& request) {
+    const auto parsed_required_level =
+        parse_required_access_level_header(request->getHeader("X-Required-Level"));
     return roche_limit::auth_core::RequestContext{
         .client_ip = extract_client_ip(request),
         .service_name = trim(request->getHeader("X-Target-Service")),
         .api_key = extract_api_key(request),
-        .required_access_level = extract_required_access_level(request),
+        .required_access_level = parsed_required_level.value,
+        .required_access_level_present = parsed_required_level.present,
+        .required_access_level_valid = parsed_required_level.valid,
     };
 }
 
@@ -110,11 +125,15 @@ roche_limit::auth_core::LoginRequest build_login_request(
 
 roche_limit::auth_core::SessionAuthRequest build_session_auth_request(
     const drogon::HttpRequestPtr& request) {
-    const auto session_cookie = request->getCookie(load_session_cookie_config().name);
+    const auto parsed_required_level =
+        parse_required_access_level_header(request->getHeader("X-Required-Level"));
+    const auto session_cookie = request->getCookie(session_cookie_config().name);
     return roche_limit::auth_core::SessionAuthRequest{
         .client_ip = extract_client_ip(request),
         .service_name = trim(request->getHeader("X-Target-Service")),
-        .required_access_level = extract_required_access_level(request),
+        .required_access_level = parsed_required_level.value,
+        .required_access_level_present = parsed_required_level.present,
+        .required_access_level_valid = parsed_required_level.valid,
         .session_token = session_cookie.empty() ? std::nullopt
                                                 : std::optional<std::string>(session_cookie),
     };

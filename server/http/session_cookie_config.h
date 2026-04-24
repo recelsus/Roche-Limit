@@ -16,6 +16,9 @@ struct SessionCookieConfig {
 };
 
 SessionCookieConfig load_session_cookie_config();
+void initialize_session_cookie_config(SessionCookieConfig config);
+void initialize_session_cookie_config_from_env();
+const SessionCookieConfig& session_cookie_config();
 
 std::string make_session_cookie_header(std::string_view session_token,
                                        const SessionCookieConfig& config);

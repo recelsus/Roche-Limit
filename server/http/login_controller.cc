@@ -4,6 +4,7 @@
 #include "auth_core/login_result.h"
 #include "auth_core/login_service.h"
 #include "auth_store/audit_repository.h"
+#include "client_ip_resolver.h"
 #include "common/debug_log.h"
 #include "login_page_renderer.h"
 #include "request_extractor.h"
@@ -38,12 +39,12 @@ void add_session_cookie(const drogon::HttpResponsePtr &response,
                         std::string_view session_token) {
   response->addHeader(
       "Set-Cookie",
-      make_session_cookie_header(session_token, load_session_cookie_config()));
+      make_session_cookie_header(session_token, session_cookie_config()));
 }
 
 void clear_session_cookie(const drogon::HttpResponsePtr &response) {
   response->addHeader("Set-Cookie", make_clear_session_cookie_header(
-                                        load_session_cookie_config()));
+                                        session_cookie_config()));
 }
 
 void try_insert_audit_event(
@@ -131,6 +132,31 @@ void handle_session_auth(
     std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
   const auto request_id = next_request_id();
   try {
+    const auto peer_ip = request->peerAddr().toIp();
+    if (!is_allowed_auth_peer(peer_ip)) {
+      auto response = make_basic_response(drogon::k403Forbidden);
+      add_request_id(response, request_id);
+      response->addHeader("X-Auth-Level", "0");
+      response->addHeader("X-Auth-Reason",
+                          roche_limit::auth_core::auth_reason::ForbiddenPeer);
+      response->addHeader("X-Auth-Service", "*");
+      record_auth_request("session_auth", "deny",
+                          roche_limit::auth_core::auth_reason::ForbiddenPeer);
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = "session_auth_deny",
+              .actor_type = "unknown",
+              .service_name = std::string("*"),
+              .client_ip = peer_ip,
+              .request_id = request_id,
+              .result = "deny",
+              .reason = roche_limit::auth_core::auth_reason::ForbiddenPeer,
+          },
+          "session_auth_forbidden_peer");
+      callback(response);
+      return;
+    }
     const auto auth_request = build_session_auth_request(request);
     if (auth_request.service_name.empty()) {
       auto response = make_basic_response(drogon::k403Forbidden);
@@ -153,6 +179,60 @@ void handle_session_auth(
               .reason = roche_limit::auth_core::auth_reason::MissingService,
           },
           "session_auth_missing_service");
+      callback(response);
+      return;
+    }
+    if (!auth_request.required_access_level_present) {
+      auto response = make_basic_response(drogon::k403Forbidden);
+      add_request_id(response, request_id);
+      response->addHeader("X-Auth-Level", "0");
+      response->addHeader(
+          "X-Auth-Reason",
+          roche_limit::auth_core::auth_reason::MissingRequiredLevel);
+      response->addHeader("X-Auth-Service", auth_request.service_name);
+      record_auth_request(
+          "session_auth", "deny",
+          roche_limit::auth_core::auth_reason::MissingRequiredLevel);
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = "session_auth_deny",
+              .actor_type = "unknown",
+              .service_name = auth_request.service_name,
+              .client_ip = auth_request.client_ip,
+              .request_id = request_id,
+              .result = "deny",
+              .reason =
+                  roche_limit::auth_core::auth_reason::MissingRequiredLevel,
+          },
+          "session_auth_missing_required_level");
+      callback(response);
+      return;
+    }
+    if (!auth_request.required_access_level_valid) {
+      auto response = make_basic_response(drogon::k403Forbidden);
+      add_request_id(response, request_id);
+      response->addHeader("X-Auth-Level", "0");
+      response->addHeader(
+          "X-Auth-Reason",
+          roche_limit::auth_core::auth_reason::InvalidRequiredLevel);
+      response->addHeader("X-Auth-Service", auth_request.service_name);
+      record_auth_request(
+          "session_auth", "deny",
+          roche_limit::auth_core::auth_reason::InvalidRequiredLevel);
+      try_insert_audit_event(
+          audit_repository,
+          roche_limit::auth_store::NewAuditEvent{
+              .event_type = "session_auth_deny",
+              .actor_type = "unknown",
+              .service_name = auth_request.service_name,
+              .client_ip = auth_request.client_ip,
+              .request_id = request_id,
+              .result = "deny",
+              .reason =
+                  roche_limit::auth_core::auth_reason::InvalidRequiredLevel,
+          },
+          "session_auth_invalid_required_level");
       callback(response);
       return;
     }

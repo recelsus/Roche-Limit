@@ -5,12 +5,15 @@
 #include <cctype>
 #include <cstring>
 #include <cstdlib>
+#include <stdexcept>
 #include <string>
 #include <system_error>
 
 namespace roche_limit::server::http {
 
 namespace {
+
+SessionCookieConfig g_session_cookie_config;
 
 std::string env_or_default(const char* name, std::string fallback) {
     const char* value = std::getenv(name);
@@ -59,6 +62,50 @@ std::string normalize_same_site(std::string value) {
     return "Lax";
 }
 
+bool contains_control_character(std::string_view value) {
+    return std::any_of(value.begin(), value.end(), [](unsigned char ch) {
+        return std::iscntrl(ch) != 0;
+    });
+}
+
+void validate_cookie_component(std::string_view field_name, std::string_view value) {
+    if (value.empty()) {
+        throw std::runtime_error(std::string(field_name) + " must not be empty");
+    }
+    if (contains_control_character(value)) {
+        throw std::runtime_error(std::string(field_name) + " contains control characters");
+    }
+}
+
+SessionCookieConfig validate_session_cookie_config(SessionCookieConfig config) {
+    validate_cookie_component("ROCHE_LIMIT_SESSION_COOKIE_NAME", config.name);
+    validate_cookie_component("ROCHE_LIMIT_SESSION_COOKIE_PATH", config.path);
+    if (!config.domain.empty()) {
+        validate_cookie_component("ROCHE_LIMIT_SESSION_COOKIE_DOMAIN", config.domain);
+    }
+
+    config.same_site = normalize_same_site(config.same_site);
+    if (config.same_site == "None") {
+        config.secure = true;
+    }
+    if (config.name.rfind("__Host-", 0) == 0) {
+        if (!config.secure) {
+            throw std::runtime_error("__Host- cookie requires Secure");
+        }
+        if (!config.domain.empty()) {
+            throw std::runtime_error("__Host- cookie must not set Domain");
+        }
+        if (config.path != "/") {
+            throw std::runtime_error("__Host- cookie requires Path=/");
+        }
+    }
+    if (config.name.rfind("__Secure-", 0) == 0 && !config.secure) {
+        throw std::runtime_error("__Secure- cookie requires Secure");
+    }
+
+    return config;
+}
+
 std::string append_cookie_attributes(std::string cookie, const SessionCookieConfig& config, int max_age) {
     cookie += "; Path=" + config.path;
     if (!config.domain.empty()) {
@@ -78,7 +125,7 @@ std::string append_cookie_attributes(std::string cookie, const SessionCookieConf
 }  // namespace
 
 SessionCookieConfig load_session_cookie_config() {
-    return SessionCookieConfig{
+    return validate_session_cookie_config(SessionCookieConfig{
         .name = env_or_default("ROCHE_LIMIT_SESSION_COOKIE_NAME", "roche_limit_session"),
         .path = env_or_default("ROCHE_LIMIT_SESSION_COOKIE_PATH", "/"),
         .domain = env_or_default("ROCHE_LIMIT_SESSION_COOKIE_DOMAIN", ""),
@@ -86,7 +133,19 @@ SessionCookieConfig load_session_cookie_config() {
         .secure = env_bool_or_default("ROCHE_LIMIT_SESSION_COOKIE_SECURE", true),
         .http_only = env_bool_or_default("ROCHE_LIMIT_SESSION_COOKIE_HTTP_ONLY", true),
         .max_age_seconds = env_int_or_default("ROCHE_LIMIT_SESSION_COOKIE_MAX_AGE", 604800),
-    };
+    });
+}
+
+void initialize_session_cookie_config(SessionCookieConfig config) {
+    g_session_cookie_config = validate_session_cookie_config(std::move(config));
+}
+
+void initialize_session_cookie_config_from_env() {
+    initialize_session_cookie_config(load_session_cookie_config());
+}
+
+const SessionCookieConfig& session_cookie_config() {
+    return g_session_cookie_config;
 }
 
 std::string make_session_cookie_header(std::string_view session_token,

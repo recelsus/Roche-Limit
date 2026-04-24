@@ -4,6 +4,7 @@
 #include "auth_core/auth_result.h"
 #include "auth_core/auth_service.h"
 #include "auth_store/audit_repository.h"
+#include "client_ip_resolver.h"
 #include "common/debug_log.h"
 #include "request_extractor.h"
 #include "request_observability.h"
@@ -39,6 +40,38 @@ void try_insert_audit_event(
   }
 }
 
+void deny_request(std::string_view request_id,
+                  std::string_view service_name,
+                  std::string_view client_ip,
+                  std::string_view reason,
+                  const std::function<void(const drogon::HttpResponsePtr &)>& callback,
+                  std::string_view audit_context) {
+  auto response = drogon::HttpResponse::newHttpResponse();
+  response->setStatusCode(drogon::k403Forbidden);
+  response->addHeader("X-Request-Id", std::string(request_id));
+  response->addHeader("X-Auth-Level", "0");
+  response->addHeader("X-Auth-Reason", std::string(reason));
+  response->addHeader("X-Auth-Service",
+                      service_name.empty() ? "*" : std::string(service_name));
+  record_auth_request("auth", "deny", reason);
+  try_insert_audit_event(
+      g_auth_audit_repository,
+      roche_limit::auth_store::NewAuditEvent{
+          .event_type = "auth_deny",
+          .actor_type = "unknown",
+          .service_name =
+              service_name.empty() ? std::optional<std::string>("*")
+                                   : std::optional<std::string>(
+                                         std::string(service_name)),
+          .client_ip = std::string(client_ip),
+          .request_id = std::string(request_id),
+          .result = "deny",
+          .reason = std::string(reason),
+      },
+      audit_context);
+  callback(response);
+}
+
 } // namespace
 
 void register_auth_routes(
@@ -53,6 +86,13 @@ void register_auth_routes(
                         &&callback) {
     const auto request_id = next_request_id();
     try {
+      const auto peer_ip = request->peerAddr().toIp();
+      if (!is_allowed_auth_peer(peer_ip)) {
+        deny_request(request_id, "*", peer_ip,
+                     roche_limit::auth_core::auth_reason::ForbiddenPeer,
+                     callback, "auth_forbidden_peer");
+        return;
+      }
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth handler auth_service="
                  << static_cast<const void *>(g_auth_service.get())
@@ -61,42 +101,33 @@ void register_auth_routes(
                         g_auth_service->repository_address());
       }
       const auto request_context = build_request_context(request);
+      if (request_context.service_name.empty()) {
+        deny_request(request_id, "*", request_context.client_ip,
+                     roche_limit::auth_core::auth_reason::MissingService,
+                     callback, "auth_missing_service");
+        return;
+      }
+      if (!request_context.required_access_level_present) {
+        deny_request(
+            request_id, request_context.service_name, request_context.client_ip,
+            roche_limit::auth_core::auth_reason::MissingRequiredLevel,
+            callback, "auth_missing_required_level");
+        return;
+      }
+      if (!request_context.required_access_level_valid) {
+        deny_request(
+            request_id, request_context.service_name, request_context.client_ip,
+            roche_limit::auth_core::auth_reason::InvalidRequiredLevel,
+            callback, "auth_invalid_required_level");
+        return;
+      }
+
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth request id=" << request_id
                  << " received service=" << request_context.service_name
                  << " client_ip=" << request_context.client_ip
                  << " api_key_present="
                  << (request_context.api_key.has_value() ? "yes" : "no");
-      }
-      if (request_context.service_name.empty()) {
-        auto response = drogon::HttpResponse::newHttpResponse();
-        response->setStatusCode(drogon::k403Forbidden);
-        response->addHeader("X-Request-Id", request_id);
-        response->addHeader("X-Auth-Level", "0");
-        response->addHeader(
-            "X-Auth-Reason",
-            roche_limit::auth_core::auth_reason::MissingService);
-        response->addHeader("X-Auth-Service", "*");
-        record_auth_request(
-            "auth", "deny",
-            roche_limit::auth_core::auth_reason::MissingService);
-        try_insert_audit_event(
-            g_auth_audit_repository,
-            roche_limit::auth_store::NewAuditEvent{
-                .event_type = "auth_deny",
-                .actor_type = "unknown",
-                .service_name = std::string("*"),
-                .client_ip = request_context.client_ip,
-                .request_id = request_id,
-                .result = "deny",
-                .reason = roche_limit::auth_core::auth_reason::MissingService,
-            },
-            "auth_missing_service");
-        callback(response);
-        return;
-      }
-
-      if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth request authorize begin";
       }
       const auto auth_result = g_auth_service->authorize(request_context);

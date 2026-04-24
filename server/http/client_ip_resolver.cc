@@ -5,12 +5,19 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace roche_limit::server::http {
 
 namespace {
+
+ProxyAccessConfig g_proxy_access_config;
 
 std::string trim(std::string value) {
     auto not_space = [](unsigned char ch) { return !std::isspace(ch); };
@@ -20,7 +27,7 @@ std::string trim(std::string value) {
     return value;
 }
 
-std::optional<roche_limit::auth_core::IpRuleRecord> parse_trusted_proxy_rule(
+std::optional<roche_limit::auth_core::IpRuleRecord> parse_proxy_rule(
     std::string value_text,
     std::int64_t id) {
     value_text = trim(std::move(value_text));
@@ -72,6 +79,58 @@ std::optional<roche_limit::auth_core::IpRuleRecord> parse_trusted_proxy_rule(
     };
 }
 
+struct ParsedRuleList {
+    std::vector<roche_limit::auth_core::IpRuleRecord> rules;
+    std::vector<std::string> invalid_tokens;
+};
+
+ParsedRuleList parse_proxy_rule_list(std::string_view rules_text) {
+    ParsedRuleList parsed;
+    std::size_t start = 0;
+    std::int64_t id = 1;
+
+    while (start <= rules_text.size()) {
+        const auto separator = rules_text.find(',', start);
+        const auto token = rules_text.substr(
+            start,
+            separator == std::string_view::npos ? std::string_view::npos : separator - start);
+        const auto trimmed = trim(std::string(token));
+        if (!trimmed.empty()) {
+            if (const auto rule = parse_proxy_rule(trimmed, id); rule.has_value()) {
+                parsed.rules.push_back(*rule);
+                ++id;
+            } else {
+                parsed.invalid_tokens.push_back(trimmed);
+            }
+        }
+
+        if (separator == std::string_view::npos) {
+            break;
+        }
+        start = separator + 1;
+    }
+
+    return parsed;
+}
+
+void require_valid_proxy_rule_list(std::string_view env_name,
+                                   std::string_view env_value,
+                                   const ParsedRuleList& parsed) {
+    if (parsed.invalid_tokens.empty()) {
+        return;
+    }
+
+    std::string message = std::string(env_name) + " contains invalid entries: ";
+    for (std::size_t index = 0; index < parsed.invalid_tokens.size(); ++index) {
+        if (index > 0) {
+            message += ", ";
+        }
+        message += parsed.invalid_tokens[index];
+    }
+    message += " (input: " + std::string(env_value) + ")";
+    throw std::runtime_error(message);
+}
+
 std::string extract_forwarded_ip(std::string_view forwarded_for_header) {
     if (forwarded_for_header.empty()) {
         return {};
@@ -97,27 +156,7 @@ bool is_trusted_proxy(std::string_view peer_ip,
 
 std::vector<roche_limit::auth_core::IpRuleRecord> parse_trusted_proxy_rules(
     std::string_view trusted_proxies_text) {
-    std::vector<roche_limit::auth_core::IpRuleRecord> rules;
-    std::size_t start = 0;
-    std::int64_t id = 1;
-
-    while (start <= trusted_proxies_text.size()) {
-        const auto separator = trusted_proxies_text.find(',', start);
-        const auto token = trusted_proxies_text.substr(
-            start,
-            separator == std::string_view::npos ? std::string_view::npos : separator - start);
-        if (const auto rule = parse_trusted_proxy_rule(std::string(token), id); rule.has_value()) {
-            rules.push_back(*rule);
-            ++id;
-        }
-
-        if (separator == std::string_view::npos) {
-            break;
-        }
-        start = separator + 1;
-    }
-
-    return rules;
+    return parse_proxy_rule_list(trusted_proxies_text).rules;
 }
 
 std::vector<roche_limit::auth_core::IpRuleRecord> load_trusted_proxy_rules_from_env() {
@@ -126,6 +165,49 @@ std::vector<roche_limit::auth_core::IpRuleRecord> load_trusted_proxy_rules_from_
         return {};
     }
     return parse_trusted_proxy_rules(value);
+}
+
+ProxyAccessConfig load_proxy_access_config_from_env() {
+    ProxyAccessConfig config;
+
+    const char* trusted_value = std::getenv("ROCHE_LIMIT_TRUSTED_PROXIES");
+    if (trusted_value != nullptr && *trusted_value != '\0') {
+        const auto parsed = parse_proxy_rule_list(trusted_value);
+        require_valid_proxy_rule_list("ROCHE_LIMIT_TRUSTED_PROXIES",
+                                      trusted_value,
+                                      parsed);
+        config.trusted_proxy_rules = parsed.rules;
+    }
+
+    const char* allowed_value = std::getenv("ROCHE_LIMIT_ALLOWED_PEERS");
+    if (allowed_value != nullptr && *allowed_value != '\0') {
+        const auto parsed = parse_proxy_rule_list(allowed_value);
+        require_valid_proxy_rule_list("ROCHE_LIMIT_ALLOWED_PEERS",
+                                      allowed_value,
+                                      parsed);
+        config.allowed_peer_rules = parsed.rules;
+    } else {
+        config.allowed_peer_rules = config.trusted_proxy_rules;
+    }
+
+    return config;
+}
+
+void initialize_proxy_access_config(ProxyAccessConfig config) {
+    g_proxy_access_config = std::move(config);
+}
+
+const std::vector<roche_limit::auth_core::IpRuleRecord>& trusted_proxy_rules() {
+    return g_proxy_access_config.trusted_proxy_rules;
+}
+
+bool is_allowed_auth_peer(std::string_view peer_ip) {
+    if (g_proxy_access_config.allowed_peer_rules.empty()) {
+        return true;
+    }
+    return roche_limit::auth_core::select_most_specific_ip_match(
+               peer_ip, g_proxy_access_config.allowed_peer_rules)
+        .has_value();
 }
 
 std::string resolve_client_ip(std::string_view peer_ip,

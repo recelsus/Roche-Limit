@@ -40,7 +40,7 @@ server {
 ```
 
 - `X-Target-Service` は必須
-- `X-Required-Level` を渡すと `/auth` 側で必要レベル判定を行う
+- `X-Required-Level` も必須
 - API キーは `Authorization: Bearer ...` を優先し、なければ `X-API-Key` を利用
 - `X-Real-IP` と `X-Forwarded-For` は両方渡しておく
 - `auth_request_set` は backend へ補助情報を引き継ぎたい場合のみ利用する
@@ -49,8 +49,10 @@ server {
 
 ```env
 ROCHE_LIMIT_TRUSTED_PROXIES=127.0.0.1,::1,172.18.0.0/16
+ROCHE_LIMIT_ALLOWED_PEERS=127.0.0.1,::1,172.18.0.0/16
 ```
 
+`ROCHE_LIMIT_ALLOWED_PEERS` は `/auth` `/session/auth` 自体へ到達できる peer を制限します。未設定時は `ROCHE_LIMIT_TRUSTED_PROXIES` が流用されます。
 本番でより厳密にする場合は、nginx の固定 IP または nginx と `roche-limit` の専用 Docker network の CIDR に絞ってください。
 
 `roche-limit` は `/metrics` で Prometheus text 形式の counter を返します。外部公開せず、Prometheus など監視系コンテナからだけ到達できる network に置くか、nginx 側で別途保護してください。
@@ -134,7 +136,7 @@ server {
 
 ## location ごとに required level を変える例
 
-`Roche-Limit` は `X-Required-Level` を受け取れるため、location ごとに必要レベルを nginx 側で定義できます。  
+`Roche-Limit` は `X-Required-Level` を必須で受け取るため、location ごとに必要レベルを nginx 側で定義します。  
 分岐ルール自体は nginx に置いたまま、判定は `/auth` に任せる形です。
 
 例:

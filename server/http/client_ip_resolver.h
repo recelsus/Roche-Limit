@@ -8,10 +8,19 @@
 
 namespace roche_limit::server::http {
 
+struct ProxyAccessConfig {
+    std::vector<roche_limit::auth_core::IpRuleRecord> trusted_proxy_rules;
+    std::vector<roche_limit::auth_core::IpRuleRecord> allowed_peer_rules;
+};
+
 std::vector<roche_limit::auth_core::IpRuleRecord> parse_trusted_proxy_rules(
     std::string_view trusted_proxies_text);
 
 std::vector<roche_limit::auth_core::IpRuleRecord> load_trusted_proxy_rules_from_env();
+ProxyAccessConfig load_proxy_access_config_from_env();
+void initialize_proxy_access_config(ProxyAccessConfig config);
+const std::vector<roche_limit::auth_core::IpRuleRecord>& trusted_proxy_rules();
+bool is_allowed_auth_peer(std::string_view peer_ip);
 
 std::string resolve_client_ip(std::string_view peer_ip,
                               std::string_view real_ip_header,
