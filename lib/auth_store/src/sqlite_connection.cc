@@ -27,6 +27,15 @@ SqliteConnection::SqliteConnection(const std::filesystem::path& database_path) {
         throw error;
     }
 
+    if (sqlite3_busy_timeout(db_, 5000) != SQLITE_OK) {
+        auto error = make_sqlite_error(db_, "failed to configure sqlite busy timeout");
+        sqlite3_close(db_);
+        db_ = nullptr;
+        throw error;
+    }
+
+    execute("PRAGMA journal_mode = WAL;");
+    execute("PRAGMA synchronous = NORMAL;");
     execute("PRAGMA foreign_keys = ON;");
 }
 
