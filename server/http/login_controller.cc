@@ -30,6 +30,30 @@ make_basic_response(drogon::HttpStatusCode status_code) {
   return response;
 }
 
+void add_cookie(const drogon::HttpResponsePtr &response,
+                std::string_view name,
+                std::string_view value,
+                const roche_limit::server::http::SessionCookieConfig &config,
+                bool http_only,
+                int max_age_seconds) {
+  drogon::Cookie cookie{std::string(name), std::string(value)};
+  cookie.setPath(config.path);
+  cookie.setHttpOnly(http_only);
+  cookie.setSecure(config.secure);
+  cookie.setMaxAge(max_age_seconds);
+  if (!config.domain.empty()) {
+    cookie.setDomain(config.domain);
+  }
+  if (config.same_site == "Strict") {
+    cookie.setSameSite(drogon::Cookie::SameSite::kStrict);
+  } else if (config.same_site == "None") {
+    cookie.setSameSite(drogon::Cookie::SameSite::kNone);
+  } else {
+    cookie.setSameSite(drogon::Cookie::SameSite::kLax);
+  }
+  response->addCookie(std::move(cookie));
+}
+
 void add_request_id(const drogon::HttpResponsePtr &response,
                     std::string_view request_id) {
   response->addHeader("X-Request-Id", std::string(request_id));
@@ -37,25 +61,25 @@ void add_request_id(const drogon::HttpResponsePtr &response,
 
 void add_session_cookie(const drogon::HttpResponsePtr &response,
                         std::string_view session_token) {
-  response->addHeader(
-      "Set-Cookie",
-      make_session_cookie_header(session_token, session_cookie_config()));
+  const auto &config = session_cookie_config();
+  add_cookie(response, config.name, session_token, config, config.http_only,
+             config.max_age_seconds);
 }
 
 void add_csrf_cookie(const drogon::HttpResponsePtr &response,
                      std::string_view csrf_token) {
-  response->addHeader("Set-Cookie",
-                      make_csrf_cookie_header(csrf_token, session_cookie_config()));
+  const auto &config = session_cookie_config();
+  add_cookie(response, csrf_cookie_name(config), csrf_token, config, false, 600);
 }
 
 void clear_session_cookie(const drogon::HttpResponsePtr &response) {
-  response->addHeader("Set-Cookie", make_clear_session_cookie_header(
-                                        session_cookie_config()));
+  const auto &config = session_cookie_config();
+  add_cookie(response, config.name, "deleted", config, config.http_only, 0);
 }
 
 void clear_csrf_cookie(const drogon::HttpResponsePtr &response) {
-  response->addHeader("Set-Cookie",
-                      make_clear_csrf_cookie_header(session_cookie_config()));
+  const auto &config = session_cookie_config();
+  add_cookie(response, csrf_cookie_name(config), "deleted", config, false, 0);
 }
 
 std::optional<std::string> extract_logout_csrf_token(
