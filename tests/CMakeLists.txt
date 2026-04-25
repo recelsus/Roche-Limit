@@ -1,3 +1,5 @@
+find_package(Drogon REQUIRED)
+
 add_executable(roche_limit_auth_core_tests
     auth_core/auth_service_test.cc
 )
