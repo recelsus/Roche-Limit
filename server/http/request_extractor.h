@@ -3,8 +3,13 @@
 #include "auth_core/login_request.h"
 #include "auth_core/request_context.h"
 
-#include <drogon/HttpRequest.h>
+#include <memory>
 #include <string_view>
+
+namespace drogon {
+class HttpRequest;
+using HttpRequestPtr = std::shared_ptr<HttpRequest>;
+}
 
 namespace roche_limit::server::http {
 
