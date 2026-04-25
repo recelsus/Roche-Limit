@@ -9,6 +9,29 @@
 
 namespace roche_limit::auth_core {
 
+namespace {
+
+int env_access_level_or_default(const char *name, int fallback) {
+  const char *value = std::getenv(name);
+  if (value == nullptr || *value == '\0') {
+    return fallback;
+  }
+
+  const std::string_view text(value);
+  int parsed = 0;
+  const auto *begin = text.data();
+  const auto *end = begin + text.size();
+  const auto result = std::from_chars(begin, end, parsed);
+  if (result.ec != std::errc{} || result.ptr != end ||
+      !is_valid_access_level(parsed)) {
+    std::cerr << "invalid " << name << "; using " << fallback << std::endl;
+    return fallback;
+  }
+  return parsed;
+}
+
+} // namespace
+
 AccessLevel::AccessLevel(int value) noexcept : value_(value) {}
 
 std::optional<AccessLevel> AccessLevel::from_int(int value) noexcept {
@@ -45,23 +68,20 @@ bool access_level_satisfies(int granted_level,
 
 int unknown_ip_access_level() {
   constexpr int kDefaultUnknownIpLevel = 10;
-  const char *value = std::getenv("ROCHE_LIMIT_UNKNOWN_IP_LEVEL");
-  if (value == nullptr || *value == '\0') {
-    return kDefaultUnknownIpLevel;
-  }
+  return env_access_level_or_default("ROCHE_LIMIT_UNKNOWN_IP_LEVEL",
+                                     kDefaultUnknownIpLevel);
+}
 
-  const std::string_view text(value);
-  int parsed = 0;
-  const auto *begin = text.data();
-  const auto *end = begin + text.size();
-  const auto result = std::from_chars(begin, end, parsed);
-  if (result.ec != std::errc{} || result.ptr != end ||
-      !is_valid_access_level(parsed)) {
-    std::cerr << "invalid ROCHE_LIMIT_UNKNOWN_IP_LEVEL; using "
-              << kDefaultUnknownIpLevel << std::endl;
-    return kDefaultUnknownIpLevel;
-  }
-  return parsed;
+int shared_ip_allow_access_level() {
+  constexpr int kDefaultSharedIpAllowLevel = 10;
+  return env_access_level_or_default("ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL",
+                                     kDefaultSharedIpAllowLevel);
+}
+
+int default_api_key_access_level() {
+  constexpr int kDefaultApiKeyLevel = 10;
+  return env_access_level_or_default("ROCHE_LIMIT_DEFAULT_API_KEY_LEVEL",
+                                     kDefaultApiKeyLevel);
 }
 
 } // namespace roche_limit::auth_core

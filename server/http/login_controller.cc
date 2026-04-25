@@ -6,6 +6,7 @@
 #include "auth_store/audit_repository.h"
 #include "client_ip_resolver.h"
 #include "common/debug_log.h"
+#include "controller_support.h"
 #include "login_page_renderer.h"
 #include "request_extractor.h"
 #include "request_observability.h"
@@ -23,63 +24,26 @@ std::shared_ptr<const roche_limit::auth_core::LoginService> g_login_service;
 std::shared_ptr<const roche_limit::auth_store::AuditRepository>
     g_login_audit_repository;
 
-drogon::HttpResponsePtr
-make_basic_response(drogon::HttpStatusCode status_code) {
-  auto response = drogon::HttpResponse::newHttpResponse();
-  response->setStatusCode(status_code);
-  return response;
-}
-
-void add_cookie(const drogon::HttpResponsePtr &response,
-                std::string_view name,
-                std::string_view value,
-                const roche_limit::server::http::SessionCookieConfig &config,
-                bool http_only,
-                int max_age_seconds) {
-  drogon::Cookie cookie{std::string(name), std::string(value)};
-  cookie.setPath(config.path);
-  cookie.setHttpOnly(http_only);
-  cookie.setSecure(config.secure);
-  cookie.setMaxAge(max_age_seconds);
-  if (!config.domain.empty()) {
-    cookie.setDomain(config.domain);
-  }
-  if (config.same_site == "Strict") {
-    cookie.setSameSite(drogon::Cookie::SameSite::kStrict);
-  } else if (config.same_site == "None") {
-    cookie.setSameSite(drogon::Cookie::SameSite::kNone);
-  } else {
-    cookie.setSameSite(drogon::Cookie::SameSite::kLax);
-  }
-  response->addCookie(std::move(cookie));
-}
-
-void add_request_id(const drogon::HttpResponsePtr &response,
-                    std::string_view request_id) {
-  response->addHeader("X-Request-Id", std::string(request_id));
-}
-
 void add_session_cookie(const drogon::HttpResponsePtr &response,
                         std::string_view session_token) {
   const auto &config = session_cookie_config();
-  add_cookie(response, config.name, session_token, config, config.http_only,
-             config.max_age_seconds);
+  response->addCookie(make_session_cookie(session_token, config));
 }
 
 void add_csrf_cookie(const drogon::HttpResponsePtr &response,
                      std::string_view csrf_token) {
   const auto &config = session_cookie_config();
-  add_cookie(response, csrf_cookie_name(config), csrf_token, config, false, 600);
+  response->addCookie(make_csrf_cookie(csrf_token, config));
 }
 
 void clear_session_cookie(const drogon::HttpResponsePtr &response) {
   const auto &config = session_cookie_config();
-  add_cookie(response, config.name, "deleted", config, config.http_only, 0);
+  response->addCookie(make_clear_session_cookie(config));
 }
 
 void clear_csrf_cookie(const drogon::HttpResponsePtr &response) {
   const auto &config = session_cookie_config();
-  add_cookie(response, csrf_cookie_name(config), "deleted", config, false, 0);
+  response->addCookie(make_clear_csrf_cookie(config));
 }
 
 std::optional<std::string> extract_logout_csrf_token(
@@ -95,18 +59,25 @@ std::optional<std::string> extract_logout_csrf_token(
   return std::nullopt;
 }
 
-void try_insert_audit_event(
-    const std::shared_ptr<const roche_limit::auth_store::AuditRepository>
-        &audit_repository,
-    const roche_limit::auth_store::NewAuditEvent &event,
-    std::string_view context) {
-  try {
-    audit_repository->insert_event(event);
-  } catch (const std::exception &ex) {
-    LOG_ERROR << "audit insert failed context=" << context << ": " << ex.what();
-  } catch (...) {
-    LOG_ERROR << "audit insert failed context=" << context << ": unknown error";
+void handle_login_page(const drogon::HttpRequestPtr &request,
+                       std::function<void(const drogon::HttpResponsePtr &)>
+                           &&callback) {
+  const auto request_id = next_request_id();
+  const auto client_ip = resolve_request_client_ip(request);
+  if (!g_login_service->can_access_login_page(client_ip)) {
+    auto response = make_basic_response(drogon::k403Forbidden);
+    add_request_id(response, request_id);
+    record_auth_request("login_page", "deny",
+                        roche_limit::auth_core::auth_reason::IpDeny);
+    callback(response);
+    return;
   }
+  const auto csrf_token = g_login_service->issue_csrf_token("login", client_ip);
+  auto response = make_login_page_response(csrf_token);
+  add_request_id(response, request_id);
+  add_csrf_cookie(response, csrf_token);
+  record_auth_request("login_page", "allow", "page");
+  callback(response);
 }
 
 void handle_login(
@@ -192,6 +163,40 @@ void handle_login(
   }
 }
 
+void deny_session_auth_request(
+    std::string_view request_id,
+    std::string_view service_name,
+    std::string_view client_ip,
+    std::string_view reason,
+    const std::shared_ptr<const roche_limit::auth_store::AuditRepository>
+        &audit_repository,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback,
+    std::string_view audit_context) {
+  auto response = make_basic_response(drogon::k403Forbidden);
+  add_request_id(response, request_id);
+  response->addHeader("X-Auth-Level", "0");
+  response->addHeader("X-Auth-Reason", std::string(reason));
+  response->addHeader("X-Auth-Service",
+                      service_name.empty() ? "*" : std::string(service_name));
+  record_auth_request("session_auth", "deny", reason);
+  try_insert_audit_event(
+      audit_repository,
+      roche_limit::auth_store::NewAuditEvent{
+          .event_type = "session_auth_deny",
+          .actor_type = "unknown",
+          .service_name =
+              service_name.empty() ? std::optional<std::string>("*")
+                                   : std::optional<std::string>(
+                                         std::string(service_name)),
+          .client_ip = std::string(client_ip),
+          .request_id = std::string(request_id),
+          .result = "deny",
+          .reason = std::string(reason),
+      },
+      audit_context);
+  callback(response);
+}
+
 void handle_session_auth(
     const std::shared_ptr<const roche_limit::auth_core::LoginService>
         &login_service,
@@ -203,106 +208,34 @@ void handle_session_auth(
   try {
     const auto peer_ip = request->peerAddr().toIp();
     if (!is_allowed_auth_peer(peer_ip)) {
-      auto response = make_basic_response(drogon::k403Forbidden);
-      add_request_id(response, request_id);
-      response->addHeader("X-Auth-Level", "0");
-      response->addHeader("X-Auth-Reason",
-                          roche_limit::auth_core::auth_reason::ForbiddenPeer);
-      response->addHeader("X-Auth-Service", "*");
-      record_auth_request("session_auth", "deny",
-                          roche_limit::auth_core::auth_reason::ForbiddenPeer);
-      try_insert_audit_event(
-          audit_repository,
-          roche_limit::auth_store::NewAuditEvent{
-              .event_type = "session_auth_deny",
-              .actor_type = "unknown",
-              .service_name = std::string("*"),
-              .client_ip = peer_ip,
-              .request_id = request_id,
-              .result = "deny",
-              .reason = roche_limit::auth_core::auth_reason::ForbiddenPeer,
-          },
-          "session_auth_forbidden_peer");
-      callback(response);
+      deny_session_auth_request(
+          request_id, "*", peer_ip,
+          roche_limit::auth_core::auth_reason::ForbiddenPeer, audit_repository,
+          std::move(callback), "session_auth_forbidden_peer");
       return;
     }
     const auto auth_request = build_session_auth_request(request);
     if (auth_request.service_name.empty()) {
-      auto response = make_basic_response(drogon::k403Forbidden);
-      add_request_id(response, request_id);
-      response->addHeader("X-Auth-Level", "0");
-      response->addHeader("X-Auth-Reason",
-                          roche_limit::auth_core::auth_reason::MissingService);
-      response->addHeader("X-Auth-Service", "*");
-      record_auth_request("session_auth", "deny",
-                          roche_limit::auth_core::auth_reason::MissingService);
-      try_insert_audit_event(
-          audit_repository,
-          roche_limit::auth_store::NewAuditEvent{
-              .event_type = "session_auth_deny",
-              .actor_type = "unknown",
-              .service_name = std::string("*"),
-              .client_ip = auth_request.client_ip,
-              .request_id = request_id,
-              .result = "deny",
-              .reason = roche_limit::auth_core::auth_reason::MissingService,
-          },
-          "session_auth_missing_service");
-      callback(response);
+      deny_session_auth_request(
+          request_id, "*", auth_request.client_ip,
+          roche_limit::auth_core::auth_reason::MissingService, audit_repository,
+          std::move(callback), "session_auth_missing_service");
       return;
     }
     if (!auth_request.required_access_level_present) {
-      auto response = make_basic_response(drogon::k403Forbidden);
-      add_request_id(response, request_id);
-      response->addHeader("X-Auth-Level", "0");
-      response->addHeader(
-          "X-Auth-Reason",
-          roche_limit::auth_core::auth_reason::MissingRequiredLevel);
-      response->addHeader("X-Auth-Service", auth_request.service_name);
-      record_auth_request(
-          "session_auth", "deny",
-          roche_limit::auth_core::auth_reason::MissingRequiredLevel);
-      try_insert_audit_event(
-          audit_repository,
-          roche_limit::auth_store::NewAuditEvent{
-              .event_type = "session_auth_deny",
-              .actor_type = "unknown",
-              .service_name = auth_request.service_name,
-              .client_ip = auth_request.client_ip,
-              .request_id = request_id,
-              .result = "deny",
-              .reason =
-                  roche_limit::auth_core::auth_reason::MissingRequiredLevel,
-          },
+      deny_session_auth_request(
+          request_id, auth_request.service_name, auth_request.client_ip,
+          roche_limit::auth_core::auth_reason::MissingRequiredLevel,
+          audit_repository, std::move(callback),
           "session_auth_missing_required_level");
-      callback(response);
       return;
     }
     if (!auth_request.required_access_level_valid) {
-      auto response = make_basic_response(drogon::k403Forbidden);
-      add_request_id(response, request_id);
-      response->addHeader("X-Auth-Level", "0");
-      response->addHeader(
-          "X-Auth-Reason",
-          roche_limit::auth_core::auth_reason::InvalidRequiredLevel);
-      response->addHeader("X-Auth-Service", auth_request.service_name);
-      record_auth_request(
-          "session_auth", "deny",
-          roche_limit::auth_core::auth_reason::InvalidRequiredLevel);
-      try_insert_audit_event(
-          audit_repository,
-          roche_limit::auth_store::NewAuditEvent{
-              .event_type = "session_auth_deny",
-              .actor_type = "unknown",
-              .service_name = auth_request.service_name,
-              .client_ip = auth_request.client_ip,
-              .request_id = request_id,
-              .result = "deny",
-              .reason =
-                  roche_limit::auth_core::auth_reason::InvalidRequiredLevel,
-          },
+      deny_session_auth_request(
+          request_id, auth_request.service_name, auth_request.client_ip,
+          roche_limit::auth_core::auth_reason::InvalidRequiredLevel,
+          audit_repository, std::move(callback),
           "session_auth_invalid_required_level");
-      callback(response);
       return;
     }
 
@@ -462,46 +395,14 @@ void register_login_routes(
       "/login",
       [](const drogon::HttpRequestPtr &request,
          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        const auto request_id = next_request_id();
-        const auto client_ip = resolve_request_client_ip(request);
-        if (!g_login_service->can_access_login_page(client_ip)) {
-          auto response = make_basic_response(drogon::k403Forbidden);
-          add_request_id(response, request_id);
-          record_auth_request("login_page", "deny",
-                              roche_limit::auth_core::auth_reason::IpDeny);
-          callback(response);
-          return;
-        }
-        const auto csrf_token =
-            g_login_service->issue_csrf_token("login", client_ip);
-        auto response = make_login_page_response(csrf_token);
-        add_request_id(response, request_id);
-        add_csrf_cookie(response, csrf_token);
-        record_auth_request("login_page", "allow", "page");
-        callback(response);
+        handle_login_page(request, std::move(callback));
       },
       {drogon::Get});
   drogon::app().registerHandler(
       "/login/",
       [](const drogon::HttpRequestPtr &request,
          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
-        const auto request_id = next_request_id();
-        const auto client_ip = resolve_request_client_ip(request);
-        if (!g_login_service->can_access_login_page(client_ip)) {
-          auto response = make_basic_response(drogon::k403Forbidden);
-          add_request_id(response, request_id);
-          record_auth_request("login_page", "deny",
-                              roche_limit::auth_core::auth_reason::IpDeny);
-          callback(response);
-          return;
-        }
-        const auto csrf_token =
-            g_login_service->issue_csrf_token("login", client_ip);
-        auto response = make_login_page_response(csrf_token);
-        add_request_id(response, request_id);
-        add_csrf_cookie(response, csrf_token);
-        record_auth_request("login_page", "allow", "page");
-        callback(response);
+        handle_login_page(request, std::move(callback));
       },
       {drogon::Get});
 

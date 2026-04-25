@@ -77,7 +77,7 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
       request_context.client_ip,
       repository_->list_ip_rules(IpRuleEffect::Allow));
   if (allow_match.has_value()) {
-    ip_access_level = 60;
+    ip_access_level = shared_ip_allow_access_level();
     matched_ip_rule_id = allow_match->id;
     reason = auth_reason::IpAllow;
     if (roche_limit::common::verbose_logging_enabled()) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <drogon/Cookie.h>
+
 #include <string>
 #include <string_view>
 
@@ -20,6 +22,13 @@ void initialize_session_cookie_config(SessionCookieConfig config);
 void initialize_session_cookie_config_from_env();
 const SessionCookieConfig& session_cookie_config();
 std::string csrf_cookie_name(const SessionCookieConfig& config);
+
+drogon::Cookie make_session_cookie(std::string_view session_token,
+                                   const SessionCookieConfig& config);
+drogon::Cookie make_clear_session_cookie(const SessionCookieConfig& config);
+drogon::Cookie make_csrf_cookie(std::string_view csrf_token,
+                                const SessionCookieConfig& config);
+drogon::Cookie make_clear_csrf_cookie(const SessionCookieConfig& config);
 
 std::string make_session_cookie_header(std::string_view session_token,
                                        const SessionCookieConfig& config);

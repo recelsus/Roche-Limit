@@ -34,7 +34,8 @@ roche_limit_cli key disable <api-key-id>
 roche_limit_cli key remove <api-key-id>
 ```
 
-- `key add` と `key gen` の `--level` 省略時は `30`
+- `key add` と `key gen` の `--level` 省略時は `10`
+- `ROCHE_LIMIT_DEFAULT_API_KEY_LEVEL` で `--level` 省略時の既定値を上書きできる
 - `--service` は key の scope として扱われます。省略時は全サービス共通です
 - `--service *` でも全サービス共通を指定できます
 - `key gen` と `key rotate` は生成した平文キーを1回だけ表示します

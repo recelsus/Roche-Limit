@@ -1,6 +1,7 @@
 #include "key_command.h"
 
 #include "audit_logging.h"
+#include "auth_core/access_level.h"
 #include "auth_core/api_key_hasher.h"
 #include "cli_support.h"
 
@@ -30,7 +31,9 @@ std::int64_t insert_generated_api_key(const RuleRepository &repository,
       .key_prefix = roche_limit::auth_core::api_key_prefix(plain_api_key),
       .service_name = parse_service_name_option(options, "--service"),
       .access_level =
-          level_option.has_value() ? parse_int(*level_option, "--level") : 30,
+          level_option.has_value()
+              ? parse_int(*level_option, "--level")
+              : roche_limit::auth_core::default_api_key_access_level(),
       .expires_at = optional_option(options, "--expires-at"),
       .note = optional_option(options, "--note"),
   });

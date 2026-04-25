@@ -170,7 +170,7 @@ IpAccessResult resolve_ip_access_level(const AuthRepository &auth_repository,
   }
 
   return IpAccessResult{
-      .access_level = 60,
+      .access_level = shared_ip_allow_access_level(),
       .reason = auth_reason::IpAllow,
   };
 }

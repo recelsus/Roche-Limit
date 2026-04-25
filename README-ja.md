@@ -55,10 +55,10 @@ nginxの`auth_request`を前提の認証専用サーバー。
 ## Rules
 
 アクセスレベルは0(ブロック)と1-99を想定, 推奨は(0, 10, 30, 60, 90)  
-未登録IPは10, 共通allowは60を基準とします
+未登録IPは10, 共通allowは10を基準とします
 
 - 共通 `IP deny` は最優先で拒否
-- 共通 `IP allow` は `60` を付与
+- 共通 `IP allow` は `10` を付与
 - 未登録のIP は既定で `10` を付与
 - サービス別overrideがあればそれを適用
 - APIキーがあればアクセスレベルを再評価
@@ -70,6 +70,10 @@ nginxの`auth_request`を前提の認証専用サーバー。
   起動時に必須。APIキー作成・検証にも使うため、長いランダム値を設定してください。
 - `ROCHE_LIMIT_UNKNOWN_IP_LEVEL`
   未登録IPの既定アクセスレベル。未設定時は `10`。
+- `ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL`
+  共通 `IP allow` の既定アクセスレベル。未設定時は `10`。
+- `ROCHE_LIMIT_DEFAULT_API_KEY_LEVEL`
+  `key add` / `key gen` で `--level` を省略したときの既定アクセスレベル。未設定時は `10`。
 - `ROCHE_LIMIT_AUDIT_AUTH_ALLOW`
   `1` のときのみ `/auth` / `/session/auth` の allow event も監査ログへ記録。未設定時は deny / error / login / logout 系のみを記録。
 - `ROCHE_LIMIT_AUDIT_RETENTION_DAYS`
@@ -182,6 +186,40 @@ rotation interval を超えた session は `session_rotation_required` で deny 
 ## CLI
 
 詳細は [`docs/cli.md`](./docs/cli.md) を参照。
+
+## Docker
+
+最小の `docker-compose.yml` 例:
+
+```yaml
+services:
+  roche-limit:
+    image: ghcr.io/recelsus/roche-limit:latest
+    container_name: roche-limit
+    restart: unless-stopped
+    environment:
+      ROCHE_LIMIT_API_KEY_PEPPER: "change-me-long-random-secret"
+    networks:
+      - nginx
+    volumes:
+      - ./data:/var/lib/roche-limit
+
+networks:
+  nginx:
+    external: true
+```
+
+`docker run` の例:
+
+```bash
+docker run -d \
+  --name roche-limit \
+  --restart unless-stopped \
+  --network nginx \
+  -e ROCHE_LIMIT_API_KEY_PEPPER='change-me-long-random-secret' \
+  -v "$(pwd)/data:/var/lib/roche-limit" \
+  ghcr.io/recelsus/roche-limit:latest
+```
 
 ## DB Migration
 

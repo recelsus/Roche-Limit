@@ -59,7 +59,7 @@ Recommended values are `0`, `10`, `30`, `60`, and `90`.
 Unknown IPs default to `10`.
 
 - Shared `IP deny` rules reject first
-- Shared `IP allow` rules grant `60`
+- Shared `IP allow` rules grant `10`
 - Unregistered IP addresses receive `10` by default
 - Service-specific overrides are applied when present
 - API keys may raise the access level
@@ -71,6 +71,10 @@ Unknown IPs default to `10`.
   Required at startup and used for API key creation and verification. Set a long random value.
 - `ROCHE_LIMIT_UNKNOWN_IP_LEVEL`
   Default access level for unknown IPs. Defaults to `10`.
+- `ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL`
+  Default access level for shared `IP allow` matches. Defaults to `10`.
+- `ROCHE_LIMIT_DEFAULT_API_KEY_LEVEL`
+  Default access level used by `key add` / `key gen` when `--level` is omitted. Defaults to `10`.
 - `ROCHE_LIMIT_AUDIT_AUTH_ALLOW`
   When set to `1`, `/auth` and `/session/auth` allow events are also written to the audit log. By default only deny, error, login, and logout style events are recorded.
 - `ROCHE_LIMIT_AUDIT_RETENTION_DAYS`
@@ -183,6 +187,40 @@ Auth endpoints may return the following headers:
 ## CLI
 
 See [`docs/cli.md`](./docs/cli.md) for details.
+
+## Docker
+
+Minimal `docker-compose.yml` example:
+
+```yaml
+services:
+  roche-limit:
+    image: ghcr.io/recelsus/roche-limit:latest
+    container_name: roche-limit
+    restart: unless-stopped
+    environment:
+      ROCHE_LIMIT_API_KEY_PEPPER: "change-me-long-random-secret"
+    networks:
+      - nginx
+    volumes:
+      - ./data:/var/lib/roche-limit
+
+networks:
+  nginx:
+    external: true
+```
+
+Example `docker run` command:
+
+```bash
+docker run -d \
+  --name roche-limit \
+  --restart unless-stopped \
+  --network nginx \
+  -e ROCHE_LIMIT_API_KEY_PEPPER='change-me-long-random-secret' \
+  -v "$(pwd)/data:/var/lib/roche-limit" \
+  ghcr.io/recelsus/roche-limit:latest
+```
 
 ## DB Migration
 

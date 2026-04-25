@@ -70,6 +70,7 @@ target_link_libraries(roche_limit_request_observability_tests
 target_link_libraries(roche_limit_session_cookie_config_tests
     PRIVATE
         roche_limit_common
+        Drogon::Drogon
 )
 
 target_link_libraries(roche_limit_request_extractor_tests

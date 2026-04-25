@@ -25,5 +25,7 @@ bool access_level_satisfies(int granted_level,
                             std::optional<int> required_level) noexcept;
 bool is_valid_access_level(int value) noexcept;
 int unknown_ip_access_level();
+int shared_ip_allow_access_level();
+int default_api_key_access_level();
 
 } // namespace roche_limit::auth_core

@@ -131,6 +131,28 @@ SessionCookieConfig csrf_cookie_config_from(const SessionCookieConfig& config) {
     return csrf_config;
 }
 
+drogon::Cookie make_cookie(std::string_view name,
+                           std::string_view value,
+                           const SessionCookieConfig& config,
+                           int max_age_seconds) {
+    drogon::Cookie cookie{std::string(name), std::string(value)};
+    cookie.setPath(config.path);
+    cookie.setHttpOnly(config.http_only);
+    cookie.setSecure(config.secure);
+    cookie.setMaxAge(max_age_seconds);
+    if (!config.domain.empty()) {
+        cookie.setDomain(config.domain);
+    }
+    if (config.same_site == "Strict") {
+        cookie.setSameSite(drogon::Cookie::SameSite::kStrict);
+    } else if (config.same_site == "None") {
+        cookie.setSameSite(drogon::Cookie::SameSite::kNone);
+    } else {
+        cookie.setSameSite(drogon::Cookie::SameSite::kLax);
+    }
+    return cookie;
+}
+
 }  // namespace
 
 SessionCookieConfig load_session_cookie_config() {
@@ -161,6 +183,27 @@ std::string csrf_cookie_name(const SessionCookieConfig& config) {
     return config.name + "_csrf";
 }
 
+drogon::Cookie make_session_cookie(std::string_view session_token,
+                                   const SessionCookieConfig& config) {
+    return make_cookie(config.name, session_token, config, config.max_age_seconds);
+}
+
+drogon::Cookie make_clear_session_cookie(const SessionCookieConfig& config) {
+    return make_cookie(config.name, "deleted", config, 0);
+}
+
+drogon::Cookie make_csrf_cookie(std::string_view csrf_token,
+                                const SessionCookieConfig& config) {
+    const auto csrf_config = csrf_cookie_config_from(config);
+    return make_cookie(csrf_config.name, csrf_token, csrf_config,
+                       csrf_config.max_age_seconds);
+}
+
+drogon::Cookie make_clear_csrf_cookie(const SessionCookieConfig& config) {
+    const auto csrf_config = csrf_cookie_config_from(config);
+    return make_cookie(csrf_config.name, "deleted", csrf_config, 0);
+}
+
 std::string make_session_cookie_header(std::string_view session_token,
                                        const SessionCookieConfig& config) {
     return append_cookie_attributes(config.name + "=" + std::string(session_token),
@@ -174,16 +217,11 @@ std::string make_clear_session_cookie_header(const SessionCookieConfig& config) 
 
 std::string make_csrf_cookie_header(std::string_view csrf_token,
                                     const SessionCookieConfig& config) {
-    const auto csrf_config = csrf_cookie_config_from(config);
-    return append_cookie_attributes(
-        csrf_config.name + "=" + std::string(csrf_token), csrf_config,
-        csrf_config.max_age_seconds);
+    return make_csrf_cookie(csrf_token, config).cookieString();
 }
 
 std::string make_clear_csrf_cookie_header(const SessionCookieConfig& config) {
-    const auto csrf_config = csrf_cookie_config_from(config);
-    return append_cookie_attributes(csrf_config.name + "=deleted", csrf_config,
-                                    0);
+    return make_clear_csrf_cookie(config).cookieString();
 }
 
 }  // namespace roche_limit::server::http

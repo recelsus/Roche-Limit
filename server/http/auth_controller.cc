@@ -6,6 +6,7 @@
 #include "auth_store/audit_repository.h"
 #include "client_ip_resolver.h"
 #include "common/debug_log.h"
+#include "controller_support.h"
 #include "request_extractor.h"
 #include "request_observability.h"
 
@@ -24,20 +25,6 @@ status_from_result(const roche_limit::auth_core::AuthResult &auth_result) {
   return auth_result.decision == roche_limit::auth_core::AuthDecision::Allow
              ? drogon::k200OK
              : drogon::k403Forbidden;
-}
-
-void try_insert_audit_event(
-    const std::shared_ptr<const roche_limit::auth_store::AuditRepository>
-        &audit_repository,
-    const roche_limit::auth_store::NewAuditEvent &event,
-    std::string_view context) {
-  try {
-    audit_repository->insert_event(event);
-  } catch (const std::exception &ex) {
-    LOG_ERROR << "audit insert failed context=" << context << ": " << ex.what();
-  } catch (...) {
-    LOG_ERROR << "audit insert failed context=" << context << ": unknown error";
-  }
 }
 
 void deny_request(std::string_view request_id,
