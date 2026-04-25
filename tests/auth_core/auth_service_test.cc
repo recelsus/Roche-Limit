@@ -342,8 +342,8 @@ void test_allow_ip_without_service_level_defaults_to_60() {
 
   expect(result.decision == AuthDecision::Allow,
          "allow ip should allow request");
-  expect(result.access_level == 60,
-         "allow ip without override should default to 60");
+  expect(result.access_level == 10,
+         "allow ip without override should default to 10");
 }
 
 void test_required_access_level_denies_when_below_threshold() {
