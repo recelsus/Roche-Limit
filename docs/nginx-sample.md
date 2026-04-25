@@ -300,7 +300,7 @@ server {
 `app-web` が browser から `karing` API を使う場合は、frontend から root `/` を直接叩かず、
 `/web/api/` のような path を `app-web` 側 nginx で backend に proxy する構成が安全です。
 
-## サブパス `regufa.com/karing/` の例
+## サブパス `example.com/karing/` の例
 
 サブドメインではなくサブパスで公開する場合は、nginx で prefix を剥がして backend に渡す構成が扱いやすいです。
 
@@ -315,7 +315,7 @@ upstream karing_app {
 
 server {
     listen 443 ssl http2;
-    server_name regufa.com;
+    server_name example.com;
 
     location = /karing {
         return 301 /karing/;

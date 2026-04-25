@@ -267,4 +267,4 @@ location = /__roche_limit_auth_90 {
 - location ごとに required level を切り替える例
 - `/` は IP / APIキー、`/web/` は login/session を使う併用例
 - `karing-web` が `/web/api/` 経由で `karing` を叩く構成例
-- `regufa.com/karing/` のようなサブパス配下で使う例
+- `example.com/karing/` のようなサブパス配下で使う例

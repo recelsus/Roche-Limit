@@ -74,9 +74,7 @@ target_link_libraries(roche_limit_request_extractor_tests
     PRIVATE
         roche_limit_auth_core
         roche_limit_common
-        drogon
-        trantor
-        jsoncpp
+        Drogon::Drogon
 )
 
 target_link_libraries(roche_limit_auth_store_integration_tests

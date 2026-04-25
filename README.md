@@ -268,4 +268,4 @@ That document also includes:
 - per-location required level examples
 - a mixed setup where `/` uses IP/API-key auth and `/web/` uses login/session auth
 - a `/web/api/` pattern where `karing-web` proxies to `karing` internally
-- a subpath example such as `regufa.com/karing/`
+- a subpath example such as `example.com/karing/`
