@@ -4,6 +4,7 @@
 #include "auth_core/login_result.h"
 #include "auth_core/login_service.h"
 #include "auth_store/audit_repository.h"
+#include "auth_endpoint_guard.h"
 #include "client_ip_resolver.h"
 #include "common/debug_log.h"
 #include "controller_support.h"
@@ -15,6 +16,7 @@
 #include <drogon/drogon.h>
 
 #include <string>
+#include <vector>
 
 namespace roche_limit::server::http {
 
@@ -180,13 +182,18 @@ void deny_session_auth_request(
     const std::shared_ptr<const roche_limit::auth_store::AuditRepository>
         &audit_repository,
     std::function<void(const drogon::HttpResponsePtr &)> &&callback,
-    std::string_view audit_context) {
-  auto response = make_basic_response(drogon::k403Forbidden);
+    std::string_view audit_context,
+    drogon::HttpStatusCode status_code = drogon::k403Forbidden,
+    std::optional<int> retry_after_seconds = std::nullopt) {
+  auto response = make_basic_response(status_code);
   add_request_id(response, request_id);
   response->addHeader("X-Auth-Level", "0");
   response->addHeader("X-Auth-Reason", std::string(reason));
   response->addHeader("X-Auth-Service",
                       service_name.empty() ? "*" : std::string(service_name));
+  if (retry_after_seconds.has_value()) {
+    response->addHeader("Retry-After", std::to_string(*retry_after_seconds));
+  }
   record_auth_request("session_auth", "deny", reason);
   try_insert_audit_event(
       audit_repository,
@@ -216,6 +223,15 @@ void handle_session_auth(
   const auto request_id = next_request_id();
   try {
     const auto peer_ip = request->peerAddr().toIp();
+    const auto guard_result =
+        guard_auth_endpoint_request(request, "session_auth", peer_ip);
+    if (!guard_result.allowed) {
+      deny_session_auth_request(
+          request_id, "*", peer_ip, guard_result.reason, audit_repository,
+          std::move(callback), "session_auth_guard", guard_result.status_code,
+          guard_result.retry_after_seconds);
+      return;
+    }
     if (!is_allowed_auth_peer(peer_ip)) {
       deny_session_auth_request(
           request_id, "*", peer_ip,
@@ -456,6 +472,10 @@ void register_login_routes(
       },
       {drogon::Post});
 
+  const std::vector<drogon::internal::HttpConstraint> session_auth_methods{
+      drogon::Get, drogon::Post, drogon::Put, drogon::Delete, drogon::Options,
+      drogon::Patch};
+
   drogon::app().registerHandler(
       "/session/auth",
       [](const drogon::HttpRequestPtr &request,
@@ -463,7 +483,7 @@ void register_login_routes(
         handle_session_auth(g_login_service, g_login_audit_repository, request,
                             std::move(callback));
       },
-      {drogon::Get});
+      session_auth_methods);
   drogon::app().registerHandler(
       "/session/auth/",
       [](const drogon::HttpRequestPtr &request,
@@ -471,7 +491,7 @@ void register_login_routes(
         handle_session_auth(g_login_service, g_login_audit_repository, request,
                             std::move(callback));
       },
-      {drogon::Get});
+      session_auth_methods);
 
   drogon::app().registerHandler(
       "/logout",

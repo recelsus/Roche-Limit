@@ -13,6 +13,7 @@
 #include "config/app_config.h"
 #include "crash_handler.h"
 #include "http/auth_controller.h"
+#include "http/auth_endpoint_guard.h"
 #include "http/client_ip_resolver.h"
 #include "http/login_controller.h"
 #include "http/metrics_controller.h"
@@ -32,6 +33,8 @@ int main(int argc, char *argv[]) {
       bootstrap_result.database_path);
   roche_limit::server::http::initialize_proxy_access_config(
       roche_limit::server::http::load_proxy_access_config_from_env());
+  roche_limit::server::http::initialize_auth_endpoint_guard_config(
+      roche_limit::server::http::load_auth_endpoint_guard_config_from_env());
   roche_limit::server::http::initialize_session_cookie_config_from_env();
   auto repository = std::make_shared<roche_limit::auth_store::RuleRepository>(
       config.database_path);

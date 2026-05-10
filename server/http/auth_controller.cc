@@ -4,6 +4,7 @@
 #include "auth_core/auth_result.h"
 #include "auth_core/auth_service.h"
 #include "auth_store/audit_repository.h"
+#include "auth_endpoint_guard.h"
 #include "client_ip_resolver.h"
 #include "common/debug_log.h"
 #include "controller_support.h"
@@ -11,6 +12,9 @@
 #include "request_observability.h"
 
 #include <drogon/drogon.h>
+
+#include <optional>
+#include <vector>
 
 namespace roche_limit::server::http {
 
@@ -32,14 +36,19 @@ void deny_request(std::string_view request_id,
                   std::string_view client_ip,
                   std::string_view reason,
                   const std::function<void(const drogon::HttpResponsePtr &)>& callback,
-                  std::string_view audit_context) {
+                  std::string_view audit_context,
+                  drogon::HttpStatusCode status_code = drogon::k403Forbidden,
+                  std::optional<int> retry_after_seconds = std::nullopt) {
   auto response = drogon::HttpResponse::newHttpResponse();
-  response->setStatusCode(drogon::k403Forbidden);
+  response->setStatusCode(status_code);
   response->addHeader("X-Request-Id", std::string(request_id));
   response->addHeader("X-Auth-Level", "0");
   response->addHeader("X-Auth-Reason", std::string(reason));
   response->addHeader("X-Auth-Service",
                       service_name.empty() ? "*" : std::string(service_name));
+  if (retry_after_seconds.has_value()) {
+    response->addHeader("Retry-After", std::to_string(*retry_after_seconds));
+  }
   record_auth_request("auth", "deny", reason);
   try_insert_audit_event(
       g_auth_audit_repository,
@@ -86,6 +95,14 @@ void register_auth_routes(
     const auto request_id = next_request_id();
     try {
       const auto peer_ip = request->peerAddr().toIp();
+      const auto guard_result =
+          guard_auth_endpoint_request(request, "auth", peer_ip);
+      if (!guard_result.allowed) {
+        deny_request(request_id, "*", peer_ip, guard_result.reason, callback,
+                     "auth_guard", guard_result.status_code,
+                     guard_result.retry_after_seconds);
+        return;
+      }
       if (!is_allowed_auth_peer(peer_ip)) {
         deny_request(request_id, "*", peer_ip,
                      roche_limit::auth_core::auth_reason::ForbiddenPeer,
@@ -248,8 +265,11 @@ void register_auth_routes(
     }
   };
 
-  drogon::app().registerHandler("/auth", handler, {drogon::Get});
-  drogon::app().registerHandler("/auth/", handler, {drogon::Get});
+  const std::vector<drogon::internal::HttpConstraint> auth_methods{
+      drogon::Get, drogon::Post, drogon::Put, drogon::Delete, drogon::Options,
+      drogon::Patch};
+  drogon::app().registerHandler("/auth", handler, auth_methods);
+  drogon::app().registerHandler("/auth/", handler, auth_methods);
 }
 
 } // namespace roche_limit::server::http
