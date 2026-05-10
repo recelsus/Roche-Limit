@@ -77,6 +77,15 @@ bool env_flag_or_default(const char *name, bool fallback) {
   return fallback;
 }
 
+bool public_like_deployment_mode() {
+  const char *value = std::getenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+  if (value == nullptr || *value == '\0') {
+    return false;
+  }
+  const std::string_view mode(value);
+  return mode == "public" || mode == "hardened";
+}
+
 std::size_t header_bytes(const drogon::HttpRequestPtr &request) {
   std::size_t total = 0;
   for (const auto &[name, value] : request->headers()) {
@@ -98,18 +107,28 @@ AuthEndpointGuardResult deny(drogon::HttpStatusCode status_code,
 
 int endpoint_limit(const AuthEndpointGuardConfig &config,
                    std::string_view endpoint_name) {
-  return endpoint_name == "session_auth"
-             ? config.session_auth_max_requests_per_window
-             : config.auth_max_requests_per_window;
+  if (endpoint_name == "session_auth") {
+    return config.session_auth_max_requests_per_window;
+  }
+  if (endpoint_name == "login" || endpoint_name == "login_page") {
+    return config.login_max_requests_per_window;
+  }
+  if (endpoint_name == "logout") {
+    return config.logout_max_requests_per_window;
+  }
+  return config.auth_max_requests_per_window;
 }
 
 AuthEndpointGuardResult check_rate_limit(std::string_view endpoint_name,
-                                         std::string_view peer_ip) {
+                                         std::string_view peer_ip,
+                                         std::optional<int> limit_override =
+                                             std::nullopt) {
   const auto &config = auth_endpoint_guard_config();
   if (!config.rate_limit_enabled) {
     return AuthEndpointGuardResult{};
   }
-  const int limit = endpoint_limit(config, endpoint_name);
+  const int limit =
+      limit_override.has_value() ? *limit_override : endpoint_limit(config, endpoint_name);
   if (limit <= 0) {
     return AuthEndpointGuardResult{};
   }
@@ -151,12 +170,20 @@ AuthEndpointGuardConfig load_auth_endpoint_guard_config_from_env() {
           env_int_or_default("ROCHE_LIMIT_AUTH_RATE_LIMIT_PER_WINDOW", 600),
       .session_auth_max_requests_per_window = env_int_or_default(
           "ROCHE_LIMIT_SESSION_AUTH_RATE_LIMIT_PER_WINDOW", 600),
+      .login_max_requests_per_window =
+          env_int_or_default("ROCHE_LIMIT_LOGIN_RATE_LIMIT_PER_WINDOW", 120),
+      .logout_max_requests_per_window =
+          env_int_or_default("ROCHE_LIMIT_LOGOUT_RATE_LIMIT_PER_WINDOW", 120),
       .max_header_bytes =
           env_size_or_default("ROCHE_LIMIT_AUTH_MAX_HEADER_BYTES", 8192),
       .max_query_bytes =
           env_size_or_default("ROCHE_LIMIT_AUTH_MAX_QUERY_BYTES", 1024),
       .max_body_bytes =
           env_size_or_default("ROCHE_LIMIT_AUTH_MAX_BODY_BYTES", 0),
+      .login_max_body_bytes =
+          env_size_or_default("ROCHE_LIMIT_LOGIN_MAX_BODY_BYTES", 16384),
+      .logout_max_body_bytes =
+          env_size_or_default("ROCHE_LIMIT_LOGOUT_MAX_BODY_BYTES", 4096),
   };
 }
 
@@ -202,7 +229,20 @@ bool is_valid_forwarded_proto_header(std::string_view proto) noexcept {
 AuthEndpointGuardResult guard_auth_endpoint_request(
     const drogon::HttpRequestPtr &request, std::string_view endpoint_name,
     std::string_view peer_ip) {
-  if (request->method() != drogon::Get || request->isHead()) {
+  const auto &config = auth_endpoint_guard_config();
+  return guard_endpoint_request(
+      request, endpoint_name, peer_ip,
+      EndpointGuardOptions{
+          .allowed_method = drogon::Get,
+          .max_body_bytes = config.max_body_bytes,
+          .max_requests_per_window = endpoint_limit(config, endpoint_name),
+      });
+}
+
+AuthEndpointGuardResult guard_endpoint_request(
+    const drogon::HttpRequestPtr &request, std::string_view endpoint_name,
+    std::string_view peer_ip, EndpointGuardOptions options) {
+  if (request->method() != options.allowed_method || request->isHead()) {
     return deny(drogon::k405MethodNotAllowed,
                 roche_limit::auth_core::auth_reason::InvalidHeader);
   }
@@ -217,8 +257,8 @@ AuthEndpointGuardResult guard_auth_endpoint_request(
     return deny(drogon::k414RequestURITooLarge,
                 roche_limit::auth_core::auth_reason::InvalidHeader);
   }
-  if (request->bodyLength() > config.max_body_bytes ||
-      request->realContentLength() > config.max_body_bytes) {
+  if (request->bodyLength() > options.max_body_bytes ||
+      request->realContentLength() > options.max_body_bytes) {
     return deny(drogon::k413RequestEntityTooLarge,
                 roche_limit::auth_core::auth_reason::InvalidHeader);
   }
@@ -230,8 +270,14 @@ AuthEndpointGuardResult guard_auth_endpoint_request(
     return deny(drogon::k400BadRequest,
                 roche_limit::auth_core::auth_reason::InvalidHeader);
   }
+  if (public_like_deployment_mode() &&
+      request->getHeader("X-Forwarded-Proto") == "http") {
+    return deny(drogon::k400BadRequest,
+                roche_limit::auth_core::auth_reason::InvalidHeader);
+  }
 
-  return check_rate_limit(endpoint_name, peer_ip);
+  return check_rate_limit(endpoint_name, peer_ip,
+                          options.max_requests_per_window);
 }
 
 } // namespace roche_limit::server::http

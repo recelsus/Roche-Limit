@@ -24,6 +24,14 @@ drogon::HttpRequestPtr make_get_request() {
   return request;
 }
 
+drogon::HttpRequestPtr make_post_request() {
+  auto request = drogon::HttpRequest::newHttpRequest();
+  request->setMethod(drogon::Post);
+  request->setPath("/login");
+  request->addHeader("Host", "roche-limit.internal");
+  return request;
+}
+
 void test_host_validation() {
   using roche_limit::server::http::is_valid_host_header;
 
@@ -53,6 +61,7 @@ void test_forwarded_proto_validation() {
 }
 
 void test_rejects_unsupported_method() {
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
   roche_limit::server::http::initialize_auth_endpoint_guard_config(
       roche_limit::server::http::AuthEndpointGuardConfig{});
   auto request = make_get_request();
@@ -67,6 +76,7 @@ void test_rejects_unsupported_method() {
 }
 
 void test_rejects_oversized_body() {
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
   roche_limit::server::http::initialize_auth_endpoint_guard_config(
       roche_limit::server::http::AuthEndpointGuardConfig{
           .max_body_bytes = 0,
@@ -82,7 +92,46 @@ void test_rejects_oversized_body() {
          "oversized body should return 413");
 }
 
+void test_generic_guard_allows_post_body_with_endpoint_limit() {
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+  roche_limit::server::http::reset_auth_endpoint_rate_limits_for_tests();
+  roche_limit::server::http::initialize_auth_endpoint_guard_config(
+      roche_limit::server::http::AuthEndpointGuardConfig{});
+
+  auto request = make_post_request();
+  request->setBody("username=alice&password=secret");
+
+  const auto result = roche_limit::server::http::guard_endpoint_request(
+      request, "login", "127.0.0.1",
+      roche_limit::server::http::EndpointGuardOptions{
+          .allowed_method = drogon::Post,
+          .max_body_bytes = 1024,
+          .max_requests_per_window = 10,
+      });
+  expect(result.allowed, "generic guard should allow bounded POST body");
+}
+
+void test_public_mode_rejects_forwarded_proto_http() {
+  setenv("ROCHE_LIMIT_DEPLOYMENT_MODE", "public", 1);
+  roche_limit::server::http::initialize_auth_endpoint_guard_config(
+      roche_limit::server::http::AuthEndpointGuardConfig{});
+
+  auto request = make_get_request();
+  request->addHeader("X-Forwarded-Proto", "http");
+
+  const auto result =
+      roche_limit::server::http::guard_auth_endpoint_request(request, "auth",
+                                                             "127.0.0.1");
+  expect(!result.allowed,
+         "public mode should reject insecure forwarded proto");
+  expect(result.status_code == drogon::k400BadRequest,
+         "insecure forwarded proto should return 400");
+
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+}
+
 void test_rate_limit() {
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
   roche_limit::server::http::reset_auth_endpoint_rate_limits_for_tests();
   roche_limit::server::http::initialize_auth_endpoint_guard_config(
       roche_limit::server::http::AuthEndpointGuardConfig{
@@ -116,6 +165,8 @@ int main() {
   test_forwarded_proto_validation();
   test_rejects_unsupported_method();
   test_rejects_oversized_body();
+  test_generic_guard_allows_post_body_with_endpoint_limit();
+  test_public_mode_rejects_forwarded_proto_http();
   test_rate_limit();
 
   std::cout << "roche_limit_auth_endpoint_guard_tests: ok" << std::endl;

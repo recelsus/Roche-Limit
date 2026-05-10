@@ -82,10 +82,38 @@ bool public_like_deployment_mode() {
   return mode == "public" || mode == "hardened";
 }
 
+void deny_guarded_login_endpoint(
+    std::string_view endpoint_name, std::string_view request_id,
+    const roche_limit::server::http::AuthEndpointGuardResult &guard_result,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+  auto response = make_basic_response(guard_result.status_code);
+  add_request_id(response, request_id);
+  if (guard_result.retry_after_seconds.has_value()) {
+    response->addHeader("Retry-After",
+                        std::to_string(*guard_result.retry_after_seconds));
+  }
+  record_auth_request(endpoint_name, "deny", guard_result.reason);
+  callback(response);
+}
+
 void handle_login_page(const drogon::HttpRequestPtr &request,
                        std::function<void(const drogon::HttpResponsePtr &)>
                            &&callback) {
   const auto request_id = next_request_id();
+  const auto peer_ip = request->peerAddr().toIp();
+  const auto guard_result = guard_endpoint_request(
+      request, "login_page", peer_ip,
+      EndpointGuardOptions{
+          .allowed_method = drogon::Get,
+          .max_body_bytes = 0,
+          .max_requests_per_window =
+              auth_endpoint_guard_config().login_max_requests_per_window,
+      });
+  if (!guard_result.allowed) {
+    deny_guarded_login_endpoint("login_page", request_id, guard_result,
+                                std::move(callback));
+    return;
+  }
   const auto client_ip = resolve_request_client_ip(request);
   if (!g_login_service->can_access_login_page(client_ip)) {
     auto response = make_basic_response(drogon::k403Forbidden);
@@ -112,6 +140,21 @@ void handle_login(
     std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
   const auto request_id = next_request_id();
   try {
+    const auto peer_ip = request->peerAddr().toIp();
+    const auto guard_result = guard_endpoint_request(
+        request, "login", peer_ip,
+        EndpointGuardOptions{
+            .allowed_method = drogon::Post,
+            .max_body_bytes =
+                auth_endpoint_guard_config().login_max_body_bytes,
+            .max_requests_per_window =
+                auth_endpoint_guard_config().login_max_requests_per_window,
+        });
+    if (!guard_result.allowed) {
+      deny_guarded_login_endpoint("login", request_id, guard_result,
+                                  std::move(callback));
+      return;
+    }
     const auto login_request = build_login_request(request);
     const auto login_result = login_service->login(login_request);
 
@@ -383,6 +426,20 @@ void handle_logout(
   const auto request_id = next_request_id();
   try {
     const auto peer_ip = request->peerAddr().toIp();
+    const auto guard_result = guard_endpoint_request(
+        request, "logout", peer_ip,
+        EndpointGuardOptions{
+            .allowed_method = drogon::Post,
+            .max_body_bytes =
+                auth_endpoint_guard_config().logout_max_body_bytes,
+            .max_requests_per_window =
+                auth_endpoint_guard_config().logout_max_requests_per_window,
+        });
+    if (!guard_result.allowed) {
+      deny_guarded_login_endpoint("logout", request_id, guard_result,
+                                  std::move(callback));
+      return;
+    }
     if (!is_allowed_auth_peer(peer_ip)) {
       auto response = make_basic_response(drogon::k403Forbidden);
       add_request_id(response, request_id);
@@ -461,20 +518,23 @@ void register_login_routes(
   g_login_service = std::move(login_service);
   g_login_audit_repository = std::move(audit_repository);
 
+  const std::vector<drogon::internal::HttpConstraint> login_page_methods{
+      drogon::Get, drogon::Put, drogon::Delete, drogon::Options,
+      drogon::Patch};
   drogon::app().registerHandler(
       "/login",
       [](const drogon::HttpRequestPtr &request,
          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
         handle_login_page(request, std::move(callback));
       },
-      {drogon::Get});
+      login_page_methods);
   drogon::app().registerHandler(
       "/login/",
       [](const drogon::HttpRequestPtr &request,
          std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
         handle_login_page(request, std::move(callback));
       },
-      {drogon::Get});
+      login_page_methods);
 
   drogon::app().registerHandler(
       "/login",
@@ -514,6 +574,10 @@ void register_login_routes(
       },
       session_auth_methods);
 
+  const std::vector<drogon::internal::HttpConstraint> logout_methods{
+      drogon::Get, drogon::Post, drogon::Put, drogon::Delete, drogon::Options,
+      drogon::Patch};
+
   drogon::app().registerHandler(
       "/logout",
       [](const drogon::HttpRequestPtr &request,
@@ -521,7 +585,7 @@ void register_login_routes(
         handle_logout(g_login_service, g_login_audit_repository, request,
                       std::move(callback));
       },
-      {drogon::Post});
+      logout_methods);
   drogon::app().registerHandler(
       "/logout/",
       [](const drogon::HttpRequestPtr &request,
@@ -529,7 +593,7 @@ void register_login_routes(
         handle_logout(g_login_service, g_login_audit_repository, request,
                       std::move(callback));
       },
-      {drogon::Post});
+      logout_methods);
 }
 
 } // namespace roche_limit::server::http
