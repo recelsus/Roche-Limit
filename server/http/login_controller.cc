@@ -7,6 +7,7 @@
 #include "auth_endpoint_guard.h"
 #include "client_ip_resolver.h"
 #include "common/debug_log.h"
+#include "containment_guard.h"
 #include "controller_support.h"
 #include "login_page_renderer.h"
 #include "request_extractor.h"
@@ -84,6 +85,7 @@ bool public_like_deployment_mode() {
 
 void deny_guarded_login_endpoint(
     std::string_view endpoint_name, std::string_view request_id,
+    std::string_view client_ip,
     const roche_limit::server::http::AuthEndpointGuardResult &guard_result,
     std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
   auto response = make_basic_response(guard_result.status_code);
@@ -93,6 +95,22 @@ void deny_guarded_login_endpoint(
                         std::to_string(*guard_result.retry_after_seconds));
   }
   record_auth_request(endpoint_name, "deny", guard_result.reason);
+  record_containment_signal(endpoint_name, client_ip, "deny",
+                            guard_result.reason);
+  callback(response);
+}
+
+void deny_contained_login_endpoint(
+    std::string_view endpoint_name, std::string_view request_id,
+    const ContainmentDecision &decision,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback) {
+  auto response = make_basic_response(decision.status_code);
+  add_request_id(response, request_id);
+  if (decision.retry_after_seconds.has_value()) {
+    response->addHeader("Retry-After",
+                        std::to_string(*decision.retry_after_seconds));
+  }
+  record_auth_request(endpoint_name, "deny", decision.reason);
   callback(response);
 }
 
@@ -101,6 +119,12 @@ void handle_login_page(const drogon::HttpRequestPtr &request,
                            &&callback) {
   const auto request_id = next_request_id();
   const auto peer_ip = request->peerAddr().toIp();
+  if (const auto containment = containment_decision(peer_ip);
+      !containment.allowed) {
+    deny_contained_login_endpoint("login_page", request_id, containment,
+                                  std::move(callback));
+    return;
+  }
   const auto guard_result = guard_endpoint_request(
       request, "login_page", peer_ip,
       EndpointGuardOptions{
@@ -110,16 +134,25 @@ void handle_login_page(const drogon::HttpRequestPtr &request,
               auth_endpoint_guard_config().login_max_requests_per_window,
       });
   if (!guard_result.allowed) {
-    deny_guarded_login_endpoint("login_page", request_id, guard_result,
+    deny_guarded_login_endpoint("login_page", request_id, peer_ip,
+                                guard_result,
                                 std::move(callback));
     return;
   }
   const auto client_ip = resolve_request_client_ip(request);
+  if (const auto containment = containment_decision(client_ip);
+      !containment.allowed) {
+    deny_contained_login_endpoint("login_page", request_id, containment,
+                                  std::move(callback));
+    return;
+  }
   if (!g_login_service->can_access_login_page(client_ip)) {
     auto response = make_basic_response(drogon::k403Forbidden);
     add_request_id(response, request_id);
     record_auth_request("login_page", "deny",
                         roche_limit::auth_core::auth_reason::IpDeny);
+    record_containment_signal("login_page", client_ip, "deny",
+                              roche_limit::auth_core::auth_reason::IpDeny);
     callback(response);
     return;
   }
@@ -141,6 +174,12 @@ void handle_login(
   const auto request_id = next_request_id();
   try {
     const auto peer_ip = request->peerAddr().toIp();
+    if (const auto containment = containment_decision(peer_ip);
+        !containment.allowed) {
+      deny_contained_login_endpoint("login", request_id, containment,
+                                    std::move(callback));
+      return;
+    }
     const auto guard_result = guard_endpoint_request(
         request, "login", peer_ip,
         EndpointGuardOptions{
@@ -151,11 +190,17 @@ void handle_login(
                 auth_endpoint_guard_config().login_max_requests_per_window,
         });
     if (!guard_result.allowed) {
-      deny_guarded_login_endpoint("login", request_id, guard_result,
+      deny_guarded_login_endpoint("login", request_id, peer_ip, guard_result,
                                   std::move(callback));
       return;
     }
     const auto login_request = build_login_request(request);
+    if (const auto containment = containment_decision(login_request.client_ip);
+        !containment.allowed) {
+      deny_contained_login_endpoint("login", request_id, containment,
+                                    std::move(callback));
+      return;
+    }
     const auto login_result = login_service->login(login_request);
 
     if (login_result.decision == roche_limit::auth_core::LoginDecision::Allow &&
@@ -202,6 +247,8 @@ void handle_login(
                           std::to_string(*login_result.retry_after_seconds));
     }
     record_auth_request("login", "deny", login_result.reason);
+    record_containment_signal("login", login_request.client_ip, "deny",
+                              login_result.reason);
     try_insert_audit_event(
         audit_repository,
         roche_limit::auth_store::NewAuditEvent{
@@ -250,6 +297,7 @@ void deny_session_auth_request(
     response->addHeader("Retry-After", std::to_string(*retry_after_seconds));
   }
   record_auth_request("session_auth", "deny", reason);
+  record_containment_signal("session_auth", client_ip, "deny", reason);
   try_insert_audit_event(
       audit_repository,
       roche_limit::auth_store::NewAuditEvent{
@@ -278,6 +326,14 @@ void handle_session_auth(
   const auto request_id = next_request_id();
   try {
     const auto peer_ip = request->peerAddr().toIp();
+    if (const auto containment = containment_decision(peer_ip);
+        !containment.allowed) {
+      deny_session_auth_request(
+          request_id, "*", peer_ip, containment.reason, audit_repository,
+          std::move(callback), "session_auth_containment",
+          containment.status_code, containment.retry_after_seconds);
+      return;
+    }
     const auto guard_result =
         guard_auth_endpoint_request(request, "session_auth", peer_ip);
     if (!guard_result.allowed) {
@@ -321,6 +377,15 @@ void handle_session_auth(
       return;
     }
     const auto auth_request = build_session_auth_request(request);
+    if (const auto containment = containment_decision(auth_request.client_ip);
+        !containment.allowed) {
+      deny_session_auth_request(
+          request_id, "*", auth_request.client_ip, containment.reason,
+          audit_repository, std::move(callback),
+          "session_auth_containment_client", containment.status_code,
+          containment.retry_after_seconds);
+      return;
+    }
     if (auth_request.service_name.empty()) {
       deny_session_auth_request(
           request_id, "*", auth_request.client_ip,
@@ -376,6 +441,12 @@ void handle_session_auth(
                             ? "allow"
                             : "deny",
                         auth_result.reason);
+    record_containment_signal(
+        "session_auth", auth_request.client_ip,
+        auth_result.decision == roche_limit::auth_core::LoginDecision::Allow
+            ? "allow"
+            : "deny",
+        auth_result.reason);
     if (auth_result.decision == roche_limit::auth_core::LoginDecision::Deny ||
         roche_limit::auth_store::audit_auth_allow_enabled()) {
       try_insert_audit_event(
@@ -426,6 +497,12 @@ void handle_logout(
   const auto request_id = next_request_id();
   try {
     const auto peer_ip = request->peerAddr().toIp();
+    if (const auto containment = containment_decision(peer_ip);
+        !containment.allowed) {
+      deny_contained_login_endpoint("logout", request_id, containment,
+                                    std::move(callback));
+      return;
+    }
     const auto guard_result = guard_endpoint_request(
         request, "logout", peer_ip,
         EndpointGuardOptions{
@@ -436,7 +513,7 @@ void handle_logout(
                 auth_endpoint_guard_config().logout_max_requests_per_window,
         });
     if (!guard_result.allowed) {
-      deny_guarded_login_endpoint("logout", request_id, guard_result,
+      deny_guarded_login_endpoint("logout", request_id, peer_ip, guard_result,
                                   std::move(callback));
       return;
     }
@@ -447,10 +524,20 @@ void handle_logout(
       clear_csrf_cookie(response);
       record_auth_request("logout", "deny",
                           roche_limit::auth_core::auth_reason::ForbiddenPeer);
+      record_containment_signal(
+          "logout", peer_ip, "deny",
+          roche_limit::auth_core::auth_reason::ForbiddenPeer);
       callback(response);
       return;
     }
     const auto session_request = build_session_auth_request(request);
+    if (const auto containment =
+            containment_decision(session_request.client_ip);
+        !containment.allowed) {
+      deny_contained_login_endpoint("logout", request_id, containment,
+                                    std::move(callback));
+      return;
+    }
     const auto csrf_token = extract_logout_csrf_token(request);
     const auto csrf_cookie =
         request->getCookie(csrf_cookie_name(session_cookie_config()));
@@ -464,6 +551,9 @@ void handle_logout(
       clear_csrf_cookie(response);
       record_auth_request("logout", "deny",
                           roche_limit::auth_core::auth_reason::InvalidCsrf);
+      record_containment_signal(
+          "logout", session_request.client_ip, "deny",
+          roche_limit::auth_core::auth_reason::InvalidCsrf);
       try_insert_audit_event(
           audit_repository,
           roche_limit::auth_store::NewAuditEvent{

@@ -7,6 +7,7 @@
 #include "auth_endpoint_guard.h"
 #include "client_ip_resolver.h"
 #include "common/debug_log.h"
+#include "containment_guard.h"
 #include "controller_support.h"
 #include "request_extractor.h"
 #include "request_observability.h"
@@ -52,6 +53,7 @@ void deny_request(std::string_view request_id,
     response->addHeader("Retry-After", std::to_string(*retry_after_seconds));
   }
   record_auth_request("auth", "deny", reason);
+  record_containment_signal("auth", client_ip, "deny", reason);
   try_insert_audit_event(
       g_auth_audit_repository,
       roche_limit::auth_store::NewAuditEvent{
@@ -116,6 +118,13 @@ void register_auth_routes(
     const auto request_id = next_request_id();
     try {
       const auto peer_ip = request->peerAddr().toIp();
+      if (const auto containment = containment_decision(peer_ip);
+          !containment.allowed) {
+        deny_request(request_id, "*", peer_ip, containment.reason, callback,
+                     "auth_containment", containment.status_code,
+                     containment.retry_after_seconds);
+        return;
+      }
       const auto guard_result =
           guard_auth_endpoint_request(request, "auth", peer_ip);
       if (!guard_result.allowed) {
@@ -167,6 +176,14 @@ void register_auth_routes(
                         g_auth_service->repository_address());
       }
       const auto request_context = build_request_context(request);
+      if (const auto containment =
+              containment_decision(request_context.client_ip);
+          !containment.allowed) {
+        deny_request(request_id, "*", request_context.client_ip,
+                     containment.reason, callback, "auth_containment_client",
+                     containment.status_code, containment.retry_after_seconds);
+        return;
+      }
       if (request_context.service_name.empty()) {
         deny_request(request_id, "*", request_context.client_ip,
                      roche_limit::auth_core::auth_reason::MissingService,
@@ -239,6 +256,13 @@ void register_auth_routes(
                               ? "allow"
                               : "deny",
                           auth_result.reason);
+      record_containment_signal(
+          "auth", request_context.client_ip,
+          auth_result.decision ==
+                  roche_limit::auth_core::AuthDecision::Allow
+              ? "allow"
+              : "deny",
+          auth_result.reason);
       const bool audit_allow =
           roche_limit::auth_store::audit_auth_allow_enabled();
       if (auth_result.decision == roche_limit::auth_core::AuthDecision::Deny ||

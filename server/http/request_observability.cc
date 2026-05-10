@@ -1,5 +1,7 @@
 #include "request_observability.h"
 
+#include "containment_guard.h"
+
 #include <atomic>
 #include <cstdint>
 #include <map>
@@ -61,6 +63,7 @@ std::string prometheus_metrics_text() {
     output << "# TYPE roche_limit_request_ids_issued_total counter\n";
     output << "roche_limit_request_ids_issued_total "
            << (g_next_request_id.load(std::memory_order_relaxed) - 1) << '\n';
+    output << prometheus_containment_metrics_text();
     return output.str();
 }
 

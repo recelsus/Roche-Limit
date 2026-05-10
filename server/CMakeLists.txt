@@ -7,6 +7,7 @@ add_executable(roche-limit
     http/auth_controller.cc
     http/auth_endpoint_guard.cc
     http/client_ip_resolver.cc
+    http/containment_guard.cc
     http/login_asset_loader.cc
     http/login_controller.cc
     http/login_page_renderer.cc
