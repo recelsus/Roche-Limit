@@ -535,6 +535,10 @@ void handle_session_auth(
               << ex.what();
     auto response = make_basic_response(drogon::k500InternalServerError);
     add_request_id(response, request_id);
+    response->addHeader("X-Auth-Level", "0");
+    response->addHeader("X-Auth-Reason",
+                        roche_limit::auth_core::auth_reason::InternalError);
+    response->addHeader("X-Auth-Service", "*");
     record_auth_request("session_auth", "error",
                         roche_limit::auth_core::auth_reason::InternalError);
     callback(response);

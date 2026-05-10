@@ -3,6 +3,8 @@
 `Roche-Limit` を nginx の `auth_request` と組み合わせて使うためのサンプルです。  
 ここでは `roche-limit` は内部 network 上に存在し、外部公開しない前提です。
 
+proxy 共通 contract の項目メモは [`reverse-proxy-contract.md`](./reverse-proxy-contract.md) にあります。
+
 `/auth` と `/session/auth` は nginx `auth_request` 用の endpoint なので `GET` のみ受け付けます。
 
 ```nginx
