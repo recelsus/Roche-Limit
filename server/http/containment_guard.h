@@ -17,6 +17,11 @@ struct ContainmentConfig {
   int lockdown_seconds{300};
 };
 
+struct ContainmentSubject {
+  std::string type;
+  std::string id;
+};
+
 struct ContainmentDecision {
   bool allowed{true};
   drogon::HttpStatusCode status_code{drogon::k200OK};
@@ -29,10 +34,16 @@ void initialize_containment_config(ContainmentConfig config);
 void reset_containment_state_for_tests();
 
 ContainmentDecision containment_decision(std::string_view client_ip);
+ContainmentDecision containment_decision_for_subject(
+    const ContainmentSubject &subject);
 void record_containment_signal(std::string_view endpoint,
                                std::string_view client_ip,
                                std::string_view result,
                                std::string_view reason);
+void record_containment_signal_for_subject(const ContainmentSubject &subject,
+                                           std::string_view endpoint,
+                                           std::string_view result,
+                                           std::string_view reason);
 std::string prometheus_containment_metrics_text();
 
 } // namespace roche_limit::server::http

@@ -79,12 +79,63 @@ void test_metrics_include_containment_state() {
          "metrics should include lockdown gauge");
 }
 
+void test_subject_quarantine_and_signal_metrics() {
+  roche_limit::server::http::reset_containment_state_for_tests();
+  roche_limit::server::http::initialize_containment_config(
+      roche_limit::server::http::ContainmentConfig{
+          .deny_burst_window_seconds = 60,
+          .deny_burst_threshold = 2,
+          .quarantine_seconds = 120,
+      });
+  const auto subject = roche_limit::server::http::ContainmentSubject{
+      .type = "api_key",
+      .id = "42",
+  };
+
+  roche_limit::server::http::record_containment_signal_for_subject(
+      subject, "auth", "deny", "insufficient_level");
+  roche_limit::server::http::record_containment_signal_for_subject(
+      subject, "auth", "deny", "insufficient_level");
+
+  const auto decision =
+      roche_limit::server::http::containment_decision_for_subject(subject);
+  expect(!decision.allowed, "api key subject should be quarantined");
+  const auto metrics =
+      roche_limit::server::http::prometheus_containment_metrics_text();
+  expect(contains(metrics,
+                  "subject_type=\"api_key\",signal_kind=\"authorization_denied\""),
+         "metrics should include classified api key signal");
+}
+
+void test_manual_denylist() {
+  roche_limit::server::http::reset_containment_state_for_tests();
+  setenv("ROCHE_LIMIT_CONTAINMENT_DENYLIST_SESSION_IDS", "7, 9", 1);
+  roche_limit::server::http::initialize_containment_config(
+      roche_limit::server::http::ContainmentConfig{});
+
+  const auto decision =
+      roche_limit::server::http::containment_decision_for_subject(
+          roche_limit::server::http::ContainmentSubject{
+              .type = "session",
+              .id = "9",
+          });
+  expect(!decision.allowed, "manual session denylist should deny");
+  expect(decision.status_code == drogon::k403Forbidden,
+         "manual denylist should return 403");
+  expect(decision.reason == "emergency_denylist",
+         "manual denylist should expose emergency reason");
+
+  unsetenv("ROCHE_LIMIT_CONTAINMENT_DENYLIST_SESSION_IDS");
+}
+
 } // namespace
 
 int main() {
   test_deny_burst_quarantines_ip();
   test_lockdown_threshold();
   test_metrics_include_containment_state();
+  test_subject_quarantine_and_signal_metrics();
+  test_manual_denylist();
   roche_limit::server::http::reset_containment_state_for_tests();
 
   std::cout << "roche_limit_containment_guard_tests: ok" << std::endl;

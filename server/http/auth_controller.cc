@@ -230,6 +230,20 @@ void register_auth_routes(
                  << " level=" << auth_result.access_level
                  << " reason=" << auth_result.reason;
       }
+      if (auth_result.api_key_record_id.has_value()) {
+        const auto subject = ContainmentSubject{
+            .type = "api_key",
+            .id = std::to_string(*auth_result.api_key_record_id),
+        };
+        if (const auto containment = containment_decision_for_subject(subject);
+            !containment.allowed) {
+          deny_request(request_id, request_context.service_name,
+                       request_context.client_ip, containment.reason, callback,
+                       "auth_api_key_containment", containment.status_code,
+                       containment.retry_after_seconds);
+          return;
+        }
+      }
 
       auto response = drogon::HttpResponse::newHttpResponse();
       response->setStatusCode(status_from_result(auth_result));
@@ -263,6 +277,19 @@ void register_auth_routes(
               ? "allow"
               : "deny",
           auth_result.reason);
+      if (auth_result.api_key_record_id.has_value()) {
+        record_containment_signal_for_subject(
+            ContainmentSubject{
+                .type = "api_key",
+                .id = std::to_string(*auth_result.api_key_record_id),
+            },
+            "auth",
+            auth_result.decision ==
+                    roche_limit::auth_core::AuthDecision::Allow
+                ? "allow"
+                : "deny",
+            auth_result.reason);
+      }
       const bool audit_allow =
           roche_limit::auth_store::audit_auth_allow_enabled();
       if (auth_result.decision == roche_limit::auth_core::AuthDecision::Deny ||

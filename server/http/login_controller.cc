@@ -418,6 +418,36 @@ void handle_session_auth(
     }
 
     const auto auth_result = login_service->authorize_session(auth_request);
+    if (auth_result.session_id.has_value()) {
+      const auto subject = ContainmentSubject{
+          .type = "session",
+          .id = std::to_string(*auth_result.session_id),
+      };
+      if (const auto containment = containment_decision_for_subject(subject);
+          !containment.allowed) {
+        deny_session_auth_request(
+            request_id, auth_request.service_name, auth_request.client_ip,
+            containment.reason, audit_repository, std::move(callback),
+            "session_auth_session_containment", containment.status_code,
+            containment.retry_after_seconds);
+        return;
+      }
+    }
+    if (auth_result.user_id.has_value()) {
+      const auto subject = ContainmentSubject{
+          .type = "user",
+          .id = std::to_string(*auth_result.user_id),
+      };
+      if (const auto containment = containment_decision_for_subject(subject);
+          !containment.allowed) {
+        deny_session_auth_request(
+            request_id, auth_request.service_name, auth_request.client_ip,
+            containment.reason, audit_repository, std::move(callback),
+            "session_auth_user_containment", containment.status_code,
+            containment.retry_after_seconds);
+        return;
+      }
+    }
     auto response = make_basic_response(
         auth_result.decision == roche_limit::auth_core::LoginDecision::Allow
             ? drogon::k200OK
@@ -447,6 +477,30 @@ void handle_session_auth(
             ? "allow"
             : "deny",
         auth_result.reason);
+    if (auth_result.session_id.has_value()) {
+      record_containment_signal_for_subject(
+          ContainmentSubject{
+              .type = "session",
+              .id = std::to_string(*auth_result.session_id),
+          },
+          "session_auth",
+          auth_result.decision == roche_limit::auth_core::LoginDecision::Allow
+              ? "allow"
+              : "deny",
+          auth_result.reason);
+    }
+    if (auth_result.user_id.has_value()) {
+      record_containment_signal_for_subject(
+          ContainmentSubject{
+              .type = "user",
+              .id = std::to_string(*auth_result.user_id),
+          },
+          "session_auth",
+          auth_result.decision == roche_limit::auth_core::LoginDecision::Allow
+              ? "allow"
+              : "deny",
+          auth_result.reason);
+    }
     if (auth_result.decision == roche_limit::auth_core::LoginDecision::Deny ||
         roche_limit::auth_store::audit_auth_allow_enabled()) {
       try_insert_audit_event(

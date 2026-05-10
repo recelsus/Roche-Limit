@@ -4,6 +4,7 @@ namespace roche_limit::auth_core::auth_reason {
 
 inline constexpr auto ApiKeyElevated = "api_key_elevated";
 inline constexpr auto ExpiredSession = "expired_session";
+inline constexpr auto EmergencyDenylist = "emergency_denylist";
 inline constexpr auto InternalError = "internal_error";
 inline constexpr auto InvalidClientIp = "invalid_client_ip";
 inline constexpr auto InvalidCredentials = "invalid_credentials";
