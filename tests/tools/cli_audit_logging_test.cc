@@ -1,7 +1,9 @@
 #include "audit_logging.h"
+#include "cli_support.h"
 
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -40,11 +42,41 @@ void test_password_is_redacted() {
          "sanitized command should show password redaction marker");
 }
 
+void test_force_flag_is_required_for_destructive_commands() {
+  const roche_limit::cli::OptionsMap no_force{};
+  bool threw = false;
+  try {
+    roche_limit::cli::require_force_for_destructive_command(no_force,
+                                                            "key remove");
+  } catch (const std::runtime_error &ex) {
+    threw = true;
+    expect(std::string(ex.what()).find("--force") != std::string::npos,
+           "force failure should tell operator to use --force");
+  }
+  expect(threw, "destructive command without --force should fail");
+
+  const roche_limit::cli::OptionsMap with_force{{"--force", "true"}};
+  roche_limit::cli::require_force_for_destructive_command(with_force,
+                                                          "key remove");
+}
+
+void test_dry_run_flag_is_detected() {
+  const roche_limit::cli::OptionsMap dry_run{{"--dry-run", "true"}};
+  expect(roche_limit::cli::dry_run_requested(dry_run),
+         "dry-run flag should be detected");
+
+  const roche_limit::cli::OptionsMap disabled{{"--dry-run", "false"}};
+  expect(!roche_limit::cli::dry_run_requested(disabled),
+         "false dry-run flag should be treated as disabled");
+}
+
 } // namespace
 
 int main() {
   test_plain_api_key_is_redacted();
   test_password_is_redacted();
+  test_force_flag_is_required_for_destructive_commands();
+  test_dry_run_flag_is_detected();
   std::cout << "roche_limit_cli_audit_logging_tests: ok" << std::endl;
   return 0;
 }

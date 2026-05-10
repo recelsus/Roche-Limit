@@ -53,6 +53,7 @@ add_executable(roche_limit_auth_store_integration_tests
 add_executable(roche_limit_cli_audit_logging_tests
     tools/cli_audit_logging_test.cc
     ../tools/roche_limit_cli/audit_logging.cc
+    ../tools/roche_limit_cli/cli_support.cc
 )
 
 target_link_libraries(roche_limit_auth_core_tests

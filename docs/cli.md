@@ -28,10 +28,11 @@ roche_limit_cli ip remove <rule-id>
 roche_limit_cli key list
 roche_limit_cli key add <plain-api-key> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
 roche_limit_cli key gen [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
-roche_limit_cli key rotate <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
+roche_limit_cli key rotate <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT] [--dry-run|--force]
 roche_limit_cli key set <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]
-roche_limit_cli key disable <api-key-id>
-roche_limit_cli key remove <api-key-id>
+roche_limit_cli key disable <api-key-id> [--dry-run|--force]
+roche_limit_cli key disable-all [--dry-run|--force]
+roche_limit_cli key remove <api-key-id> [--dry-run|--force]
 ```
 
 - `key add` と `key gen` の `--level` 省略時は `10`
@@ -40,6 +41,8 @@ roche_limit_cli key remove <api-key-id>
 - `--service *` でも全サービス共通を指定できます
 - `key gen` と `key rotate` は生成した平文キーを1回だけ表示します
 - `key rotate` は旧 key を disable したうえで、新しい key を同じ設定で再発行します
+- `key rotate`, `key disable`, `key disable-all`, `key remove` は破壊的操作として扱い、実行には `--force` が必要です
+- `--dry-run` は対象 key を表示し、変更せずに監査ログへ dry-run event を残します
 - APIキー作成・検証には `ROCHE_LIMIT_API_KEY_PEPPER` が必須
 - DBには平文キーを保存せず、Argon2id verifier, peppered lookup hash, prefix のみを保存する
 - `key list` は平文キーや verifier を表示せず、prefix と利用統計のみを表示します
@@ -63,23 +66,27 @@ roche_limit_cli audit cleanup [--retention-days <days>] [--max-rows <count>]
 ```text
 roche_limit_cli user list
 roche_limit_cli user add <username> [--password <plain>] [--note TEXT]
-roche_limit_cli user set-password <user-id> [--password <plain>]
-roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable]
-roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT]
+roche_limit_cli user set-password <user-id> [--password <plain>] [--dry-run|--force]
+roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable] [--dry-run|--force]
+roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT] [--dry-run|--force]
 roche_limit_cli user session-list [--user-id <id>]
-roche_limit_cli user revoke-session <session-id>
-roche_limit_cli user revoke-all-sessions <user-id>
-roche_limit_cli user disable <user-id>
-roche_limit_cli user remove <user-id>
+roche_limit_cli user revoke-session <session-id> [--dry-run|--force]
+roche_limit_cli user revoke-all-sessions <user-id> [--dry-run|--force]
+roche_limit_cli user revoke-all-user-sessions [--dry-run|--force]
+roche_limit_cli user disable <user-id> [--dry-run|--force]
+roche_limit_cli user remove <user-id> [--dry-run|--force]
 ```
 
 - `user add` はユーザー本体と password credential を作成する
 - `user set-password` は credential のみ更新する
 - `user set --service ... --level ...` は `user_service_levels` の upsert
 - password 変更、enable/disable、service level 変更時はその user の全 session を revoke する
+- session revoke、password 変更、disable/remove、service level 変更、enable/disable は高影響操作として扱い、実行には `--force` が必要です
+- `--dry-run` は対象 user/session と active session 数を表示し、変更せずに監査ログへ dry-run event を残します
 - `user session-list` は session 一覧を表示する
 - `user revoke-session` は 1 session を revoke する
 - `user revoke-all-sessions` は user 配下の全 session を revoke する
+- `user revoke-all-user-sessions` は全 user session を revoke する緊急操作です
 - user の service 解決は `service一致 -> * -> 0`
 - `user remove` は user 配下の credential / service level / session も含めて削除される
 - session は absolute timeout / idle timeout を別で持ち、rotation interval 超過時は再 login を要求する

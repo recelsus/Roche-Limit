@@ -94,6 +94,28 @@ std::string bool_label(bool value) {
     return value ? "enabled" : "disabled";
 }
 
+bool flag_option_enabled(const OptionsMap& options, std::string_view key) {
+    const auto it = options.find(std::string(key));
+    if (it == options.end()) {
+        return false;
+    }
+    return it->second != "0" && it->second != "false" &&
+           it->second != "FALSE" && it->second != "no" &&
+           it->second != "off";
+}
+
+bool dry_run_requested(const OptionsMap& options) {
+    return flag_option_enabled(options, "--dry-run");
+}
+
+void require_force_for_destructive_command(const OptionsMap& options,
+                                           std::string_view command_name) {
+    if (!flag_option_enabled(options, "--force")) {
+        fail(std::string(command_name) +
+             " is destructive; rerun with --dry-run to preview or --force to execute");
+    }
+}
+
 bool experimental_cli_enabled() {
     const char* value = std::getenv("ROCHE_LIMIT_ENABLE_EXPERIMENTAL_CLI");
     if (value == nullptr) {
@@ -235,21 +257,23 @@ void print_usage() {
               << "  roche_limit_cli key list\n"
               << "  roche_limit_cli key add <plain-api-key> [--service <name>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
               << "  roche_limit_cli key gen [--service <name>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
-              << "  roche_limit_cli key rotate <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
+              << "  roche_limit_cli key rotate <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT] [--dry-run|--force]\n"
               << "  roche_limit_cli key set <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
-              << "  roche_limit_cli key disable <api-key-id>\n"
-              << "  roche_limit_cli key remove <api-key-id>\n"
+              << "  roche_limit_cli key disable <api-key-id> [--dry-run|--force]\n"
+              << "  roche_limit_cli key disable-all [--dry-run|--force]\n"
+              << "  roche_limit_cli key remove <api-key-id> [--dry-run|--force]\n"
               << "  roche_limit_cli audit cleanup [--retention-days <days>] [--max-rows <count>]\n"
               << "  roche_limit_cli user list\n"
               << "  roche_limit_cli user add <username> [--password <plain>] [--note TEXT]\n"
-              << "  roche_limit_cli user set-password <user-id> [--password <plain>]\n"
-              << "  roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable]\n"
-              << "  roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT]\n"
+              << "  roche_limit_cli user set-password <user-id> [--password <plain>] [--dry-run|--force]\n"
+              << "  roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable] [--dry-run|--force]\n"
+              << "  roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT] [--dry-run|--force]\n"
               << "  roche_limit_cli user session-list [--user-id <id>]\n"
-              << "  roche_limit_cli user revoke-session <session-id>\n"
-              << "  roche_limit_cli user revoke-all-sessions <user-id>\n"
-              << "  roche_limit_cli user disable <user-id>\n"
-              << "  roche_limit_cli user remove <user-id>\n";
+              << "  roche_limit_cli user revoke-session <session-id> [--dry-run|--force]\n"
+              << "  roche_limit_cli user revoke-all-sessions <user-id> [--dry-run|--force]\n"
+              << "  roche_limit_cli user revoke-all-user-sessions [--dry-run|--force]\n"
+              << "  roche_limit_cli user disable <user-id> [--dry-run|--force]\n"
+              << "  roche_limit_cli user remove <user-id> [--dry-run|--force]\n";
     if (experimental_cli_enabled()) {
         std::cout << "\nExperimental:\n"
                   << "  roche_limit_cli ip compact-ids\n"

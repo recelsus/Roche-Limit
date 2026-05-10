@@ -34,6 +34,10 @@ std::string to_string(roche_limit::auth_core::IpRuleEffect value);
 std::string printable_service_name(const std::optional<std::string>& value);
 std::string printable_service_name(std::string_view value);
 std::string bool_label(bool value);
+bool flag_option_enabled(const OptionsMap& options, std::string_view key);
+bool dry_run_requested(const OptionsMap& options);
+void require_force_for_destructive_command(const OptionsMap& options,
+                                           std::string_view command_name);
 bool experimental_cli_enabled();
 void require_experimental_cli(std::string_view command_name);
 
