@@ -101,6 +101,33 @@ void test_allowed_peers_default_to_trusted_proxies() {
     unsetenv("ROCHE_LIMIT_TRUSTED_PROXIES");
 }
 
+void test_allowed_peers_override_trusted_proxies() {
+    setenv("ROCHE_LIMIT_TRUSTED_PROXIES", "172.18.0.0/16", 1);
+    setenv("ROCHE_LIMIT_ALLOWED_PEERS", "127.0.0.1", 1);
+    const auto config = roche_limit::server::http::load_proxy_access_config_from_env();
+    expect(config.trusted_proxy_rules.size() == 1, "trusted proxy rule should be loaded");
+    expect(config.allowed_peer_rules.size() == 1, "explicit allowed peer rule should be loaded");
+    roche_limit::server::http::initialize_proxy_access_config(config);
+    expect(!roche_limit::server::http::is_allowed_auth_peer("172.18.0.3"),
+           "trusted proxy should not be allowed when allowed peers override it");
+    expect(roche_limit::server::http::is_allowed_auth_peer("127.0.0.1"),
+           "explicit allowed peer should be allowed");
+    unsetenv("ROCHE_LIMIT_TRUSTED_PROXIES");
+    unsetenv("ROCHE_LIMIT_ALLOWED_PEERS");
+}
+
+void test_invalid_allowed_peer_env_fails_fast() {
+    setenv("ROCHE_LIMIT_ALLOWED_PEERS", "127.0.0.1,invalid", 1);
+    bool threw = false;
+    try {
+        static_cast<void>(roche_limit::server::http::load_proxy_access_config_from_env());
+    } catch (...) {
+        threw = true;
+    }
+    expect(threw, "invalid allowed peers env should fail fast");
+    unsetenv("ROCHE_LIMIT_ALLOWED_PEERS");
+}
+
 }  // namespace
 
 int main() {
@@ -112,5 +139,7 @@ int main() {
     test_ipv6_trusted_proxy_support();
     test_invalid_trusted_proxy_env_fails_fast();
     test_allowed_peers_default_to_trusted_proxies();
+    test_allowed_peers_override_trusted_proxies();
+    test_invalid_allowed_peer_env_fails_fast();
     return 0;
 }

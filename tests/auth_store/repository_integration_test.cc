@@ -260,6 +260,61 @@ void test_expired_api_key_is_auto_disabled() {
          "expired api key should be auto-disabled");
 }
 
+void test_rotated_api_key_pattern_disables_old_key() {
+  const auto database_path = test_database_path("api-key-rotation-pattern");
+  reset_database(database_path);
+  roche_limit::auth_store::bootstrap_sqlite_schema_at(database_path, {});
+
+  RuleRepository repository(database_path);
+  const auto old_plain = std::string("old-plain-key");
+  const auto new_plain = std::string("new-plain-key");
+  const auto old_id = repository.insert_api_key(NewApiKeyRecord{
+      .key_hash = roche_limit::auth_core::hash_api_key(old_plain),
+      .key_lookup_hash =
+          roche_limit::auth_core::api_key_lookup_hash(old_plain),
+      .key_prefix = roche_limit::auth_core::api_key_prefix(old_plain),
+      .service_name = std::string("primary"),
+      .access_level = 90,
+      .expires_at = std::nullopt,
+      .note = std::string("old"),
+  });
+  const auto new_id = repository.insert_api_key(NewApiKeyRecord{
+      .key_hash = roche_limit::auth_core::hash_api_key(new_plain),
+      .key_lookup_hash =
+          roche_limit::auth_core::api_key_lookup_hash(new_plain),
+      .key_prefix = roche_limit::auth_core::api_key_prefix(new_plain),
+      .service_name = std::string("primary"),
+      .access_level = 90,
+      .expires_at = std::nullopt,
+      .note = std::string("new"),
+  });
+  repository.disable_api_key(old_id);
+
+  const AuthService service(std::make_shared<RuleRepository>(database_path));
+  const auto old_result = service.authorize(RequestContext{
+      .client_ip = "198.51.100.30",
+      .service_name = "primary",
+      .api_key = old_plain,
+      .required_access_level = 90,
+  });
+  const auto new_result = service.authorize(RequestContext{
+      .client_ip = "198.51.100.30",
+      .service_name = "primary",
+      .api_key = new_plain,
+      .required_access_level = 90,
+  });
+
+  expect(old_result.decision == AuthDecision::Deny,
+         "old rotated key should deny after disable");
+  expect(old_result.api_key_record_id == std::nullopt,
+         "old rotated key should not expose a disabled key id");
+  expect(new_result.decision == AuthDecision::Allow,
+         "new rotated key should authorize");
+  expect(new_result.api_key_record_id.has_value() &&
+             *new_result.api_key_record_id == new_id,
+         "new rotated key should expose the new key id");
+}
+
 void test_ip_remove_deletes_service_levels() {
   const auto database_path = test_database_path("ip-remove-cascade");
   reset_database(database_path);
@@ -480,6 +535,7 @@ int main() {
   test_legacy_key_plain_column_is_migrated();
   test_api_key_repository_stores_hash_and_prefix_only();
   test_expired_api_key_is_auto_disabled();
+  test_rotated_api_key_pattern_disables_old_key();
   test_ip_remove_deletes_service_levels();
   test_user_session_lookup_returns_non_revoked_rows();
   test_audit_cleanup_records_event_and_enforces_row_cap();

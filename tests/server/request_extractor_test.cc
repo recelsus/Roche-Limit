@@ -53,6 +53,10 @@ void test_required_level_rejects_out_of_range_and_multiple_values() {
     const auto duplicated = parse_required_access_level_header("10, 90");
     expect(duplicated.present, "multiple required level values should be present");
     expect(!duplicated.valid, "multiple required level values should be invalid");
+
+    const auto negative = parse_required_access_level_header("-1");
+    expect(negative.present, "negative required level should be present");
+    expect(!negative.valid, "negative required level should be invalid");
 }
 
 void test_target_service_name_validation() {
@@ -64,6 +68,10 @@ void test_target_service_name_validation() {
            "empty service name should be invalid");
     expect(!is_valid_target_service_name("../admin"),
            "service name should not allow path traversal style names");
+    expect(!is_valid_target_service_name("/admin"),
+           "service name should not allow leading slash");
+    expect(!is_valid_target_service_name("admin/"),
+           "service name should not allow trailing slash");
     expect(!is_valid_target_service_name("admin api"),
            "service name should not allow whitespace");
     expect(!is_valid_target_service_name("admin,api"),
@@ -75,6 +83,8 @@ void test_single_value_header_multiple_values() {
            "single header value should be accepted");
     expect(has_multiple_single_value_header_values("admin,other"),
            "comma-separated single-value header should be rejected");
+    expect(has_multiple_single_value_header_values("Bearer a, Bearer b"),
+           "comma-separated authorization values should be rejected");
 }
 
 void test_forwarded_client_ip_conflict_detection() {
@@ -98,6 +108,8 @@ void test_forwarded_for_chain_validation() {
            "malformed forwarded-for chain should be invalid");
     expect(!forwarded_for_chain_is_valid("198.51.100.8,"),
            "empty forwarded-for chain segment should be invalid");
+    expect(!forwarded_for_chain_is_valid("198.51.100.8, , 172.18.0.3"),
+           "blank forwarded-for chain segment should be invalid");
 }
 
 }  // namespace
