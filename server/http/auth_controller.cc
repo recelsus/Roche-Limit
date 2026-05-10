@@ -13,7 +13,9 @@
 
 #include <drogon/drogon.h>
 
+#include <cstdlib>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace roche_limit::server::http {
@@ -80,6 +82,25 @@ bool has_invalid_single_value_auth_header(
          has_multiple_single_value_header_values(request->getHeader("X-Real-IP"));
 }
 
+std::string_view deployment_mode_env() {
+  const char *value = std::getenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+  return value == nullptr ? std::string_view{} : std::string_view(value);
+}
+
+bool public_like_deployment_mode() {
+  const auto mode = deployment_mode_env();
+  return mode == "public" || mode == "hardened";
+}
+
+bool hardened_deployment_mode() {
+  return deployment_mode_env() == "hardened";
+}
+
+bool has_multiple_auth_credentials(const drogon::HttpRequestPtr &request) {
+  return !request->getHeader("Authorization").empty() &&
+         !request->getHeader("X-API-Key").empty();
+}
+
 } // namespace
 
 void register_auth_routes(
@@ -115,6 +136,12 @@ void register_auth_routes(
                      callback, "auth_invalid_header");
         return;
       }
+      if (hardened_deployment_mode() && has_multiple_auth_credentials(request)) {
+        deny_request(request_id, "*", peer_ip,
+                     roche_limit::auth_core::auth_reason::InvalidHeader,
+                     callback, "auth_multiple_credentials");
+        return;
+      }
       if (forwarded_client_ip_headers_conflict(
               request->getHeader("X-Real-IP"),
               request->getHeader("X-Forwarded-For"))) {
@@ -122,6 +149,14 @@ void register_auth_routes(
             request_id, "*", peer_ip,
             roche_limit::auth_core::auth_reason::ConflictingForwardedHeaders,
             callback, "auth_conflicting_forwarded_headers");
+        return;
+      }
+      if (public_like_deployment_mode() &&
+          !request->getHeader("X-Forwarded-For").empty() &&
+          !forwarded_for_chain_is_valid(request->getHeader("X-Forwarded-For"))) {
+        deny_request(request_id, "*", peer_ip,
+                     roche_limit::auth_core::auth_reason::InvalidHeader,
+                     callback, "auth_invalid_forwarded_for");
         return;
       }
       if (roche_limit::common::verbose_logging_enabled()) {

@@ -15,7 +15,9 @@
 
 #include <drogon/drogon.h>
 
+#include <cstdlib>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace roche_limit::server::http {
@@ -68,6 +70,16 @@ bool has_invalid_single_value_session_auth_header(
          has_multiple_single_value_header_values(
              request->getHeader("X-Required-Level")) ||
          has_multiple_single_value_header_values(request->getHeader("X-Real-IP"));
+}
+
+std::string_view deployment_mode_env() {
+  const char *value = std::getenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+  return value == nullptr ? std::string_view{} : std::string_view(value);
+}
+
+bool public_like_deployment_mode() {
+  const auto mode = deployment_mode_env();
+  return mode == "public" || mode == "hardened";
 }
 
 void handle_login_page(const drogon::HttpRequestPtr &request,
@@ -254,6 +266,15 @@ void handle_session_auth(
           roche_limit::auth_core::auth_reason::ConflictingForwardedHeaders,
           audit_repository, std::move(callback),
           "session_auth_conflicting_forwarded_headers");
+      return;
+    }
+    if (public_like_deployment_mode() &&
+        !request->getHeader("X-Forwarded-For").empty() &&
+        !forwarded_for_chain_is_valid(request->getHeader("X-Forwarded-For"))) {
+      deny_session_auth_request(
+          request_id, "*", peer_ip,
+          roche_limit::auth_core::auth_reason::InvalidHeader, audit_repository,
+          std::move(callback), "session_auth_invalid_forwarded_for");
       return;
     }
     const auto auth_request = build_session_auth_request(request);

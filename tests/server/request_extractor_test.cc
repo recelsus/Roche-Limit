@@ -8,6 +8,7 @@ namespace {
 
 using roche_limit::server::http::parse_required_access_level_header;
 using roche_limit::server::http::forwarded_client_ip_headers_conflict;
+using roche_limit::server::http::forwarded_for_chain_is_valid;
 using roche_limit::server::http::has_multiple_single_value_header_values;
 using roche_limit::server::http::is_valid_target_service_name;
 
@@ -88,6 +89,17 @@ void test_forwarded_client_ip_conflict_detection() {
            "malformed x-real-ip should not be treated as a conflict");
 }
 
+void test_forwarded_for_chain_validation() {
+    expect(forwarded_for_chain_is_valid("198.51.100.8"),
+           "single forwarded-for IP should be valid");
+    expect(forwarded_for_chain_is_valid("198.51.100.8, 172.18.0.3"),
+           "comma-separated valid forwarded-for chain should be valid");
+    expect(!forwarded_for_chain_is_valid("198.51.100.8, not-an-ip"),
+           "malformed forwarded-for chain should be invalid");
+    expect(!forwarded_for_chain_is_valid("198.51.100.8,"),
+           "empty forwarded-for chain segment should be invalid");
+}
+
 }  // namespace
 
 int main() {
@@ -98,6 +110,7 @@ int main() {
     test_target_service_name_validation();
     test_single_value_header_multiple_values();
     test_forwarded_client_ip_conflict_detection();
+    test_forwarded_for_chain_validation();
     std::cout << "roche_limit_request_extractor_tests: ok" << std::endl;
     return 0;
 }

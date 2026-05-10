@@ -123,6 +123,30 @@ bool forwarded_client_ip_headers_conflict(std::string_view real_ip_header,
     return real_ip != forwarded_ip;
 }
 
+bool forwarded_for_chain_is_valid(std::string_view forwarded_for_header) noexcept {
+    std::size_t start = 0;
+    bool saw_token = false;
+
+    while (start <= forwarded_for_header.size()) {
+        const auto separator = forwarded_for_header.find(',', start);
+        const auto token = forwarded_for_header.substr(
+            start,
+            separator == std::string_view::npos ? std::string_view::npos : separator - start);
+        const auto ip = trim(std::string(token));
+        if (ip.empty() || !roche_limit::auth_core::is_valid_ip_address(ip)) {
+            return false;
+        }
+        saw_token = true;
+
+        if (separator == std::string_view::npos) {
+            break;
+        }
+        start = separator + 1;
+    }
+
+    return saw_token;
+}
+
 ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view raw_header_value) {
     const auto header_value = trim(std::string(raw_header_value));
     if (header_value.empty()) {
