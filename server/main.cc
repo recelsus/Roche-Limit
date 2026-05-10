@@ -52,6 +52,10 @@ int main(int argc, char *argv[]) {
             std::string("{\"audit_retention_days\":") +
             std::to_string(config.audit_retention_days) +
             ",\"audit_max_rows\":" + std::to_string(config.audit_max_rows) +
+            ",\"deployment_mode\":\"" +
+            std::string(roche_limit::server::config::deployment_mode_name(
+                config.deployment_mode)) +
+            "\"" +
             ",\"verbose_logging\":" +
             (roche_limit::common::verbose_logging_enabled() ? "true" : "false") +
             "}",
@@ -89,6 +93,10 @@ int main(int argc, char *argv[]) {
   roche_limit::server::http::register_metrics_routes();
 
   std::cout << "Using sqlite database at " << config.database_path << std::endl;
+  std::cout << "Deployment mode: "
+            << roche_limit::server::config::deployment_mode_name(
+                   config.deployment_mode)
+            << std::endl;
   std::cout << "Starting roche-limit on port " << config.port << std::endl;
   app().addListener(config.listen_address, config.port).run();
   return 0;

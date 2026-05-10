@@ -30,6 +30,8 @@ using roche_limit::auth_core::IpRuleType;
 using roche_limit::auth_core::IpServiceLevelRecord;
 using roche_limit::auth_core::is_valid_access_level;
 using roche_limit::auth_core::RequestContext;
+using roche_limit::auth_core::shared_ip_allow_access_level;
+using roche_limit::auth_core::unknown_ip_access_level;
 
 struct FakeRepository final : AuthRepository {
   std::vector<IpRuleRecord> deny_rules;
@@ -446,11 +448,36 @@ void test_custom_service_level_boundaries_allow_non_round_numbers() {
          "failed custom threshold should use insufficient_level");
 }
 
+void test_public_like_mode_defaults_unknown_and_shared_allow_to_zero() {
+  unsetenv("ROCHE_LIMIT_UNKNOWN_IP_LEVEL");
+  unsetenv("ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL");
+  setenv("ROCHE_LIMIT_DEPLOYMENT_MODE", "public", 1);
+
+  expect(unknown_ip_access_level() == 0,
+         "public mode should default unknown IP level to 0");
+  expect(shared_ip_allow_access_level() == 0,
+         "public mode should default shared allow level to 0");
+
+  setenv("ROCHE_LIMIT_UNKNOWN_IP_LEVEL", "10", 1);
+  setenv("ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL", "30", 1);
+  expect(unknown_ip_access_level() == 10,
+         "explicit unknown IP level should still be honored");
+  expect(shared_ip_allow_access_level() == 30,
+         "explicit shared allow level should still be honored");
+
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+  unsetenv("ROCHE_LIMIT_UNKNOWN_IP_LEVEL");
+  unsetenv("ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL");
+}
+
 } // namespace
 
 int main() {
   roche_limit::common::set_verbose_logging_enabled(false);
   setenv("ROCHE_LIMIT_API_KEY_PEPPER", "test-pepper", 1);
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+  unsetenv("ROCHE_LIMIT_UNKNOWN_IP_LEVEL");
+  unsetenv("ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL");
 
   test_access_level_value_object_boundaries();
   test_ip_deny_wins();
@@ -462,6 +489,7 @@ int main() {
   test_required_access_level_denies_when_below_threshold();
   test_required_access_level_allows_exact_match();
   test_custom_service_level_boundaries_allow_non_round_numbers();
+  test_public_like_mode_defaults_unknown_and_shared_allow_to_zero();
 
   std::cout << "roche_limit_auth_core_tests: ok" << std::endl;
   return 0;

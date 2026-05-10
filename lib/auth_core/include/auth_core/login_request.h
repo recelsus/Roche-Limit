@@ -16,6 +16,7 @@ struct LoginRequest {
 struct SessionAuthRequest {
     std::string client_ip;
     std::string service_name;
+    bool service_name_valid{true};
     std::optional<int> required_access_level;
     bool required_access_level_present{false};
     bool required_access_level_valid{true};

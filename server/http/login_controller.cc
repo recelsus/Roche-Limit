@@ -59,6 +59,15 @@ std::optional<std::string> extract_logout_csrf_token(
   return std::nullopt;
 }
 
+bool has_invalid_single_value_session_auth_header(
+    const drogon::HttpRequestPtr &request) {
+  return has_multiple_single_value_header_values(
+             request->getHeader("X-Target-Service")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Required-Level")) ||
+         has_multiple_single_value_header_values(request->getHeader("X-Real-IP"));
+}
+
 void handle_login_page(const drogon::HttpRequestPtr &request,
                        std::function<void(const drogon::HttpResponsePtr &)>
                            &&callback) {
@@ -214,12 +223,36 @@ void handle_session_auth(
           std::move(callback), "session_auth_forbidden_peer");
       return;
     }
+    if (has_invalid_single_value_session_auth_header(request)) {
+      deny_session_auth_request(
+          request_id, "*", peer_ip,
+          roche_limit::auth_core::auth_reason::InvalidHeader,
+          audit_repository, std::move(callback), "session_auth_invalid_header");
+      return;
+    }
+    if (forwarded_client_ip_headers_conflict(
+            request->getHeader("X-Real-IP"),
+            request->getHeader("X-Forwarded-For"))) {
+      deny_session_auth_request(
+          request_id, "*", peer_ip,
+          roche_limit::auth_core::auth_reason::ConflictingForwardedHeaders,
+          audit_repository, std::move(callback),
+          "session_auth_conflicting_forwarded_headers");
+      return;
+    }
     const auto auth_request = build_session_auth_request(request);
     if (auth_request.service_name.empty()) {
       deny_session_auth_request(
           request_id, "*", auth_request.client_ip,
           roche_limit::auth_core::auth_reason::MissingService, audit_repository,
           std::move(callback), "session_auth_missing_service");
+      return;
+    }
+    if (!auth_request.service_name_valid) {
+      deny_session_auth_request(
+          request_id, "*", auth_request.client_ip,
+          roche_limit::auth_core::auth_reason::InvalidService, audit_repository,
+          std::move(callback), "session_auth_invalid_service");
       return;
     }
     if (!auth_request.required_access_level_present) {

@@ -13,6 +13,11 @@ add_executable(roche_limit_client_ip_resolver_tests
     ../server/http/client_ip_resolver.cc
 )
 
+add_executable(roche_limit_app_config_tests
+    server/app_config_test.cc
+    ../server/config/app_config.cc
+)
+
 add_executable(roche_limit_request_observability_tests
     server/request_observability_test.cc
     ../server/http/request_observability.cc
@@ -62,6 +67,11 @@ target_link_libraries(roche_limit_client_ip_resolver_tests
         roche_limit_common
 )
 
+target_link_libraries(roche_limit_app_config_tests
+    PRIVATE
+        roche_limit_common
+)
+
 target_link_libraries(roche_limit_request_observability_tests
     PRIVATE
         roche_limit_common
@@ -102,6 +112,12 @@ target_include_directories(roche_limit_client_ip_resolver_tests
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${PROJECT_SOURCE_DIR}/server/http
+)
+
+target_include_directories(roche_limit_app_config_tests
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROJECT_SOURCE_DIR}/server/config
 )
 
 target_include_directories(roche_limit_request_observability_tests
@@ -146,6 +162,11 @@ add_test(
 add_test(
     NAME roche_limit_client_ip_resolver_tests
     COMMAND roche_limit_client_ip_resolver_tests
+)
+
+add_test(
+    NAME roche_limit_app_config_tests
+    COMMAND roche_limit_app_config_tests
 )
 
 add_test(

@@ -1,4 +1,6 @@
 #include "request_extractor.h"
+#include "auth_core/access_level.h"
+#include "auth_core/ip_rule_matcher.h"
 #include "client_ip_resolver.h"
 #include "session_cookie_config.h"
 
@@ -33,6 +35,19 @@ std::string trim(std::string value) {
                 std::find_if(value.begin(), value.end(), not_space));
     value.erase(std::find_if(value.rbegin(), value.rend(), not_space).base(), value.end());
     return value;
+}
+
+std::string extract_forwarded_ip(std::string_view forwarded_for_header) {
+    if (forwarded_for_header.empty()) {
+        return {};
+    }
+
+    const auto separator = forwarded_for_header.find(',');
+    const auto forwarded_ip = trim(std::string(forwarded_for_header.substr(0, separator)));
+    if (!roche_limit::auth_core::is_valid_ip_address(forwarded_ip)) {
+        return {};
+    }
+    return forwarded_ip;
 }
 
 std::string extract_client_ip(const drogon::HttpRequestPtr& request) {
@@ -71,6 +86,43 @@ std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request
 
 }  // namespace
 
+bool has_multiple_single_value_header_values(std::string_view header_value) noexcept {
+    return header_value.find(',') != std::string_view::npos;
+}
+
+bool is_valid_target_service_name(std::string_view service_name) noexcept {
+    if (service_name.empty() || service_name.size() > 128) {
+        return false;
+    }
+    if (service_name.find("..") != std::string_view::npos ||
+        service_name.front() == '/' || service_name.back() == '/') {
+        return false;
+    }
+
+    for (const unsigned char ch : service_name) {
+        if (std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.' ||
+            ch == ':' || ch == '/') {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
+bool forwarded_client_ip_headers_conflict(std::string_view real_ip_header,
+                                          std::string_view forwarded_for_header) {
+    const auto real_ip = trim(std::string(real_ip_header));
+    if (real_ip.empty() || !roche_limit::auth_core::is_valid_ip_address(real_ip)) {
+        return false;
+    }
+
+    const auto forwarded_ip = extract_forwarded_ip(forwarded_for_header);
+    if (forwarded_ip.empty()) {
+        return false;
+    }
+    return real_ip != forwarded_ip;
+}
+
 ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view raw_header_value) {
     const auto header_value = trim(std::string(raw_header_value));
     if (header_value.empty()) {
@@ -80,12 +132,20 @@ ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view ra
             .valid = true,
         };
     }
+    if (has_multiple_single_value_header_values(header_value)) {
+        return ParsedRequiredAccessLevel{
+            .value = std::nullopt,
+            .present = true,
+            .valid = false,
+        };
+    }
 
     int parsed_level = 0;
     const auto* begin = header_value.data();
     const auto* end = begin + header_value.size();
     const auto result = std::from_chars(begin, end, parsed_level);
-    if (result.ec != std::errc{} || result.ptr != end || parsed_level < 0) {
+    if (result.ec != std::errc{} || result.ptr != end ||
+        !roche_limit::auth_core::is_valid_access_level(parsed_level)) {
         return ParsedRequiredAccessLevel{
             .value = std::nullopt,
             .present = true,
@@ -111,6 +171,8 @@ roche_limit::auth_core::RequestContext build_request_context(
     return roche_limit::auth_core::RequestContext{
         .client_ip = extract_client_ip(request),
         .service_name = trim(request->getHeader("X-Target-Service")),
+        .service_name_valid =
+            is_valid_target_service_name(trim(request->getHeader("X-Target-Service"))),
         .api_key = extract_api_key(request),
         .required_access_level = parsed_required_level.value,
         .required_access_level_present = parsed_required_level.present,
@@ -145,6 +207,8 @@ roche_limit::auth_core::SessionAuthRequest build_session_auth_request(
     return roche_limit::auth_core::SessionAuthRequest{
         .client_ip = extract_client_ip(request),
         .service_name = trim(request->getHeader("X-Target-Service")),
+        .service_name_valid =
+            is_valid_target_service_name(trim(request->getHeader("X-Target-Service"))),
         .required_access_level = parsed_required_level.value,
         .required_access_level_present = parsed_required_level.present,
         .required_access_level_valid = parsed_required_level.valid,

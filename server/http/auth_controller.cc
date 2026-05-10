@@ -59,6 +59,18 @@ void deny_request(std::string_view request_id,
   callback(response);
 }
 
+bool has_invalid_single_value_auth_header(
+    const drogon::HttpRequestPtr &request) {
+  return has_multiple_single_value_header_values(
+             request->getHeader("X-Target-Service")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Required-Level")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("Authorization")) ||
+         has_multiple_single_value_header_values(request->getHeader("X-API-Key")) ||
+         has_multiple_single_value_header_values(request->getHeader("X-Real-IP"));
+}
+
 } // namespace
 
 void register_auth_routes(
@@ -80,6 +92,21 @@ void register_auth_routes(
                      callback, "auth_forbidden_peer");
         return;
       }
+      if (has_invalid_single_value_auth_header(request)) {
+        deny_request(request_id, "*", peer_ip,
+                     roche_limit::auth_core::auth_reason::InvalidHeader,
+                     callback, "auth_invalid_header");
+        return;
+      }
+      if (forwarded_client_ip_headers_conflict(
+              request->getHeader("X-Real-IP"),
+              request->getHeader("X-Forwarded-For"))) {
+        deny_request(
+            request_id, "*", peer_ip,
+            roche_limit::auth_core::auth_reason::ConflictingForwardedHeaders,
+            callback, "auth_conflicting_forwarded_headers");
+        return;
+      }
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth handler auth_service="
                  << static_cast<const void *>(g_auth_service.get())
@@ -92,6 +119,12 @@ void register_auth_routes(
         deny_request(request_id, "*", request_context.client_ip,
                      roche_limit::auth_core::auth_reason::MissingService,
                      callback, "auth_missing_service");
+        return;
+      }
+      if (!request_context.service_name_valid) {
+        deny_request(request_id, "*", request_context.client_ip,
+                     roche_limit::auth_core::auth_reason::InvalidService,
+                     callback, "auth_invalid_service");
         return;
       }
       if (!request_context.required_access_level_present) {

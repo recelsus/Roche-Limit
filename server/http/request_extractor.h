@@ -19,6 +19,10 @@ struct ParsedRequiredAccessLevel {
     bool valid{true};
 };
 
+bool is_valid_target_service_name(std::string_view service_name) noexcept;
+bool has_multiple_single_value_header_values(std::string_view header_value) noexcept;
+bool forwarded_client_ip_headers_conflict(std::string_view real_ip_header,
+                                          std::string_view forwarded_for_header);
 ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view header_value);
 std::string resolve_request_client_ip(const drogon::HttpRequestPtr& request);
 

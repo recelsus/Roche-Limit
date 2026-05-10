@@ -4,6 +4,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <system_error>
 
@@ -28,6 +29,16 @@ int env_access_level_or_default(const char *name, int fallback) {
     return fallback;
   }
   return parsed;
+}
+
+bool public_like_deployment_mode() {
+  const char *value = std::getenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+  if (value == nullptr || *value == '\0') {
+    return false;
+  }
+
+  const std::string_view mode(value);
+  return mode == "public" || mode == "hardened";
 }
 
 } // namespace
@@ -67,13 +78,13 @@ bool access_level_satisfies(int granted_level,
 }
 
 int unknown_ip_access_level() {
-  constexpr int kDefaultUnknownIpLevel = 10;
+  const int kDefaultUnknownIpLevel = public_like_deployment_mode() ? 0 : 10;
   return env_access_level_or_default("ROCHE_LIMIT_UNKNOWN_IP_LEVEL",
                                      kDefaultUnknownIpLevel);
 }
 
 int shared_ip_allow_access_level() {
-  constexpr int kDefaultSharedIpAllowLevel = 10;
+  const int kDefaultSharedIpAllowLevel = public_like_deployment_mode() ? 0 : 10;
   return env_access_level_or_default("ROCHE_LIMIT_SHARED_IP_ALLOW_LEVEL",
                                      kDefaultSharedIpAllowLevel);
 }

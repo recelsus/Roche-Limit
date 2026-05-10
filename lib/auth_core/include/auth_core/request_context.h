@@ -8,6 +8,7 @@ namespace roche_limit::auth_core {
 struct RequestContext {
     std::string client_ip;
     std::string service_name;
+    bool service_name_valid{true};
     std::optional<std::string> api_key;
     std::optional<int> required_access_level;
     bool required_access_level_present{false};
