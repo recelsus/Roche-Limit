@@ -1,6 +1,6 @@
-# Reverse Proxy Contract Memo
+# Reverse Proxy Contract
 
-Roche-Limit を nginx 以外の reverse proxy からも扱うための contract メモ。
+Roche-Limit を nginx 以外の reverse proxy からも扱うための contract notes。
 
 ## Scope
 
@@ -149,7 +149,7 @@ Roche-Limit を nginx 以外の reverse proxy からも扱うための contract 
   - `X-Required-Level`
   - forwarded client IP headers unless set by trusted proxy
 
-## nginx Memo
+## nginx
 
 - current sample remains canonical
 - `auth_request`
@@ -157,7 +157,7 @@ Roche-Limit を nginx 以外の reverse proxy からも扱うための contract 
 - subrequest location should be `internal`
 - clear body for `/auth` and `/session/auth`
 
-## Apache Memo
+## Apache
 
 - target shape
   - auth subrequest / helper to Roche-Limit
@@ -169,7 +169,7 @@ Roche-Limit を nginx 以外の reverse proxy からも扱うための contract 
   - fail-closed behavior on Roche-Limit timeout
   - `Retry-After` propagation
 
-## Caddy Memo
+## Caddy
 
 - target shape
   - `forward_auth`
@@ -187,10 +187,3 @@ Roche-Limit を nginx 以外の reverse proxy からも扱うための contract 
 - `ROCHE_LIMIT_ALLOWED_PEERS` should restrict auth endpoint callers
 - `ROCHE_LIMIT_TRUSTED_PROXIES` should match only real proxy peers
 - public / hardened mode should use fail-closed defaults
-
-## Later Writing TODO
-
-- turn this memo into a reader-facing contract doc
-- add concrete Apache sample after behavior verification
-- add concrete Caddy sample after behavior verification
-- decide whether README should say nginx-first or reverse-proxy-first
