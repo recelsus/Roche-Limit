@@ -1,6 +1,35 @@
 # roche-limit CLI
 
-## 1. Usage
+## Help
+
+Top-level help shows command domains instead of every available action.
+
+```text
+roche_limit_cli -h
+roche_limit_cli --help
+roche_limit_cli help
+```
+
+Domain help groups actions by purpose and impact.
+
+```text
+roche_limit_cli ip -h
+roche_limit_cli key -h
+roche_limit_cli user -h
+roche_limit_cli audit -h
+```
+
+Action help shows the exact usage and safety requirements.
+
+```text
+roche_limit_cli key rotate -h
+roche_limit_cli user revoke-all-user-sessions --help
+roche_limit_cli help key disable-all
+```
+
+Help is processed before opening the database.
+
+## Usage
 
 ### IP
 
@@ -53,9 +82,15 @@ roche_limit_cli key remove <api-key-id> [--dry-run|--force]
 ### Audit
 
 ```text
+roche_limit_cli audit list [--limit <1-500>] [--event-type <type>] [--result <result>] [--service <name>] [--request-id <id>] [--actor-type <type>] [--reason <reason>] [--client-ip <ip>]
+roche_limit_cli audit show <event-id>
 roche_limit_cli audit cleanup [--retention-days <days>] [--max-rows <count>]
 ```
 
+- `audit list` は新しい event から既定50件を表示します
+- `audit list` の filter は完全一致です。複数指定時はすべてに一致する event を表示します
+- `audit show` は metadata と hash chain を含む保存項目を表示します
+- `audit list` と `audit show` は監査ログへ新しい event を追加しません
 - `audit cleanup` は retention と row cap に基づいて監査ログを整理します
 - 削除件数は `audit_cleanup` event の metadata に記録されます
 - CLI の管理操作は監査ログに記録されます

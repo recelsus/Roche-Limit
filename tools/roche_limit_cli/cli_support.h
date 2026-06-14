@@ -54,6 +54,11 @@ std::string generate_api_key();
 std::string prompt_password();
 std::string option_or_prompt_password(const OptionsMap& options);
 
+bool is_help_argument(std::string_view value);
+std::string help_text(std::optional<std::string_view> domain = std::nullopt,
+                      std::optional<std::string_view> action = std::nullopt);
+void print_help(std::optional<std::string_view> domain = std::nullopt,
+                std::optional<std::string_view> action = std::nullopt);
 void print_usage();
 
 }  // namespace roche_limit::cli

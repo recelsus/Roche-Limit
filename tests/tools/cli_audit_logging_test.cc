@@ -70,6 +70,37 @@ void test_dry_run_flag_is_detected() {
          "false dry-run flag should be treated as disabled");
 }
 
+void test_help_text_is_organized_by_domain_and_action() {
+  const auto top = roche_limit::cli::help_text();
+  expect(top.find("Commands:") != std::string::npos,
+         "top help should group command domains");
+  expect(top.find("roche_limit_cli key rotate") == std::string::npos,
+         "top help should not enumerate every action");
+
+  const auto key = roche_limit::cli::help_text("key");
+  expect(key.find("High-impact actions:") != std::string::npos,
+         "key help should group high-impact actions");
+  expect(key.find("disable-all") != std::string::npos,
+         "key help should include emergency disable");
+
+  const auto rotate = roche_limit::cli::help_text("key", "rotate");
+  expect(rotate.find("roche_limit_cli key rotate") != std::string::npos,
+         "action help should include exact usage");
+  expect(rotate.find("--force") != std::string::npos,
+         "destructive action help should explain force requirement");
+
+  const auto audit = roche_limit::cli::help_text("audit");
+  expect(audit.find("Read actions:") != std::string::npos,
+         "audit help should separate read actions");
+  expect(audit.find("list") != std::string::npos &&
+             audit.find("show") != std::string::npos,
+         "audit help should include list and show");
+
+  const auto audit_list = roche_limit::cli::help_text("audit", "list");
+  expect(audit_list.find("--request-id") != std::string::npos,
+         "audit list help should describe filters");
+}
+
 } // namespace
 
 int main() {
@@ -77,6 +108,7 @@ int main() {
   test_password_is_redacted();
   test_force_flag_is_required_for_destructive_commands();
   test_dry_run_flag_is_detected();
+  test_help_text_is_organized_by_domain_and_action();
   std::cout << "roche_limit_cli_audit_logging_tests: ok" << std::endl;
   return 0;
 }

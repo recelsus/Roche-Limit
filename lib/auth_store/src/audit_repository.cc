@@ -19,6 +19,26 @@ namespace roche_limit::auth_store {
 namespace {
 
 constexpr int kAuditMetadataSchemaVersion = 1;
+constexpr int kMaxAuditListRows = 500;
+
+constexpr auto kAuditEventColumns = R"SQL(
+id,
+created_at,
+event_type,
+actor_type,
+actor_id,
+target_type,
+target_id,
+service_name,
+access_level,
+client_ip,
+request_id,
+result,
+reason,
+metadata_json,
+prev_event_hash,
+event_hash
+)SQL";
 
 void bind_optional_int(sqlite3_stmt *statement, int index,
                        const std::optional<int> &value) {
@@ -221,6 +241,38 @@ int scalar_int(sqlite3 *db, const char *sql) {
   return sqlite3_column_int(statement.get(), 0);
 }
 
+std::string required_text(sqlite3_stmt *statement, int column) {
+  const auto *value =
+      reinterpret_cast<const char *>(sqlite3_column_text(statement, column));
+  if (value == nullptr) {
+    throw std::runtime_error("audit event contains unexpected null value");
+  }
+  return std::string(value);
+}
+
+AuditEventRecord read_audit_event(sqlite3_stmt *statement) {
+  return AuditEventRecord{
+      .id = sqlite3_column_int64(statement, 0),
+      .created_at = required_text(statement, 1),
+      .event_type = required_text(statement, 2),
+      .actor_type = required_text(statement, 3),
+      .actor_id = nullable_text(statement, 4),
+      .target_type = nullable_text(statement, 5),
+      .target_id = nullable_text(statement, 6),
+      .service_name = nullable_text(statement, 7),
+      .access_level = sqlite3_column_type(statement, 8) == SQLITE_NULL
+                          ? std::nullopt
+                          : std::optional<int>(sqlite3_column_int(statement, 8)),
+      .client_ip = nullable_text(statement, 9),
+      .request_id = nullable_text(statement, 10),
+      .result = required_text(statement, 11),
+      .reason = nullable_text(statement, 12),
+      .metadata_json = nullable_text(statement, 13),
+      .prev_event_hash = nullable_text(statement, 14),
+      .event_hash = required_text(statement, 15),
+  };
+}
+
 } // namespace
 
 AuditRepository::AuditRepository(std::filesystem::path database_path)
@@ -290,6 +342,66 @@ INSERT INTO audit_events (
   if (roche_limit::common::verbose_logging_enabled()) {
     std::cerr << "[audit] insert done" << std::endl;
   }
+}
+
+std::vector<AuditEventRecord>
+AuditRepository::list_events(const AuditEventFilter &filter) const {
+  std::string sql = "SELECT " + std::string(kAuditEventColumns) +
+                    " FROM audit_events WHERE 1 = 1";
+  std::vector<std::string> values;
+  const auto add_filter = [&sql, &values](
+                              std::string_view column,
+                              const std::optional<std::string> &value) {
+    if (!value.has_value()) {
+      return;
+    }
+    sql += " AND ";
+    sql += column;
+    sql += " = ?";
+    sql += std::to_string(values.size() + 1);
+    values.push_back(*value);
+  };
+  add_filter("event_type", filter.event_type);
+  add_filter("result", filter.result);
+  add_filter("service_name", filter.service_name);
+  add_filter("request_id", filter.request_id);
+  add_filter("actor_type", filter.actor_type);
+  add_filter("reason", filter.reason);
+  add_filter("client_ip", filter.client_ip);
+  sql += " ORDER BY id DESC LIMIT ?";
+  sql += std::to_string(values.size() + 1);
+  sql += ';';
+
+  SqliteConnection connection(database_path_);
+  Statement statement(connection.handle(), sql.c_str());
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    bind_text(statement.get(), static_cast<int>(index + 1), values[index]);
+  }
+  bind_int(statement.get(), static_cast<int>(values.size() + 1),
+           std::clamp(filter.limit, 1, kMaxAuditListRows));
+
+  std::vector<AuditEventRecord> events;
+  while (true) {
+    const auto step_result = sqlite3_step(statement.get());
+    if (step_result == SQLITE_DONE) {
+      break;
+    }
+    if (step_result != SQLITE_ROW) {
+      throw std::runtime_error("failed to list audit events");
+    }
+    events.push_back(read_audit_event(statement.get()));
+  }
+  return events;
+}
+
+std::optional<AuditEventRecord>
+AuditRepository::get_event(std::int64_t id) const {
+  const std::string sql = "SELECT " + std::string(kAuditEventColumns) +
+                          " FROM audit_events WHERE id = ?1;";
+  return find_one<AuditEventRecord>(
+      database_path_, sql.c_str(),
+      [id](sqlite3_stmt *statement) { bind_int64(statement, 1, id); },
+      read_audit_event, "failed to read audit event");
 }
 
 AuditCleanupResult AuditRepository::cleanup(int retention_days,

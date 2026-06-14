@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <random>
+#include <sstream>
 #include <stdexcept>
 
 namespace roche_limit::cli {
@@ -246,40 +247,231 @@ std::string option_or_prompt_password(const OptionsMap& options) {
     return prompt_password();
 }
 
-void print_usage() {
-    std::cout << "Usage:\n"
-              << "  roche_limit_cli ip list\n"
-              << "  roche_limit_cli ip add <ip-or-cidr> --allow|--deny [--note TEXT]\n"
-              << "  roche_limit_cli ip set <rule-id> [--value <ip-or-cidr>] [--allow|--deny] [--note TEXT]\n"
-              << "  roche_limit_cli ip set <rule-id> [--service <name|*>] [--level <0-90>] [--note TEXT]\n"
-              << "  roche_limit_cli ip set <ip-or-cidr> [--service <name|*>] --level <0-90> [--note TEXT]\n"
-              << "  roche_limit_cli ip remove <rule-id>\n"
-              << "  roche_limit_cli key list\n"
-              << "  roche_limit_cli key add <plain-api-key> [--service <name>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
-              << "  roche_limit_cli key gen [--service <name>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
-              << "  roche_limit_cli key rotate <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT] [--dry-run|--force]\n"
-              << "  roche_limit_cli key set <api-key-id> [--service <name|*>] [--level <0-90>] [--expires-at <timestamp>] [--note TEXT]\n"
-              << "  roche_limit_cli key disable <api-key-id> [--dry-run|--force]\n"
-              << "  roche_limit_cli key disable-all [--dry-run|--force]\n"
-              << "  roche_limit_cli key remove <api-key-id> [--dry-run|--force]\n"
-              << "  roche_limit_cli audit cleanup [--retention-days <days>] [--max-rows <count>]\n"
-              << "  roche_limit_cli user list\n"
-              << "  roche_limit_cli user add <username> [--password <plain>] [--note TEXT]\n"
-              << "  roche_limit_cli user set-password <user-id> [--password <plain>] [--dry-run|--force]\n"
-              << "  roche_limit_cli user set <user-id> [--note TEXT] [--disable|--enable] [--dry-run|--force]\n"
-              << "  roche_limit_cli user set <user-id> [--service <name|*>] [--level <0-99>] [--note TEXT] [--dry-run|--force]\n"
-              << "  roche_limit_cli user session-list [--user-id <id>]\n"
-              << "  roche_limit_cli user revoke-session <session-id> [--dry-run|--force]\n"
-              << "  roche_limit_cli user revoke-all-sessions <user-id> [--dry-run|--force]\n"
-              << "  roche_limit_cli user revoke-all-user-sessions [--dry-run|--force]\n"
-              << "  roche_limit_cli user disable <user-id> [--dry-run|--force]\n"
-              << "  roche_limit_cli user remove <user-id> [--dry-run|--force]\n";
-    if (experimental_cli_enabled()) {
-        std::cout << "\nExperimental:\n"
-                  << "  roche_limit_cli ip compact-ids\n"
-                  << "  roche_limit_cli key compact-ids\n"
-                  << "  roche_limit_cli user compact-ids\n";
+bool is_help_argument(std::string_view value) {
+    return value == "-h" || value == "--help" || value == "help";
+}
+
+std::string help_text(std::optional<std::string_view> domain,
+                      std::optional<std::string_view> action) {
+    std::ostringstream out;
+    const auto usage = [&out](std::string_view text) {
+        out << "Usage:\n  " << text << "\n";
+    };
+
+    if (!domain.has_value()) {
+        out << "Roche-Limit management CLI\n\n";
+        usage("roche_limit_cli <command> [options]");
+        out << "\nCommands:\n"
+            << "  ip      Manage IP allow/deny rules and service levels\n"
+            << "  key     Manage API keys, scopes, rotation, and emergency disable\n"
+            << "  user    Manage users, service levels, and sessions\n"
+            << "  audit   Inspect audit events and manage retention\n"
+            << "\nHelp:\n"
+            << "  roche_limit_cli <command> -h\n"
+            << "  roche_limit_cli <command> <action> -h\n"
+            << "  roche_limit_cli help <command> [action]\n"
+            << "\nGlobal options:\n"
+            << "  --verbose  Enable verbose diagnostic logging\n";
+        return out.str();
     }
+
+    const std::string topic(*domain);
+    const std::string operation = action.has_value() ? std::string(*action) : "";
+
+    if (topic == "ip") {
+        if (!operation.empty()) {
+            if (operation == "list") {
+                usage("roche_limit_cli ip list");
+                out << "\nLists shared IP rules and service-specific overrides.\n";
+            } else if (operation == "add") {
+                usage("roche_limit_cli ip add <ip-or-cidr> --allow|--deny [--note TEXT]");
+                out << "\nAdds a shared IPv4/IPv6 single-address or CIDR rule.\n";
+            } else if (operation == "set") {
+                usage("roche_limit_cli ip set <rule-id|ip-or-cidr> [options]");
+                out << "\nOptions:\n"
+                    << "  --value <ip-or-cidr>   Replace a shared rule value\n"
+                    << "  --allow | --deny      Replace a shared rule effect\n"
+                    << "  --service <name|*>    Select a service override\n"
+                    << "  --level <0-99>        Set the service access level\n"
+                    << "  --note TEXT           Set a note\n";
+            } else if (operation == "remove") {
+                usage("roche_limit_cli ip remove <rule-id>");
+                out << "\nDeletes the shared rule and its service-level overrides.\n";
+            } else {
+                out << "Unknown ip action: " << operation << "\n\n";
+            }
+        }
+        if (operation.empty() || out.str().starts_with("Unknown")) {
+            out << "Manage IP allow/deny rules and service-specific access levels.\n\n";
+            usage("roche_limit_cli ip <action> [options]");
+            out << "\nActions:\n"
+                << "  list       List shared rules and service overrides\n"
+                << "  add        Add a shared allow/deny rule\n"
+                << "  set        Update a shared rule or service override\n"
+                << "  remove     Delete a shared rule and dependent overrides\n"
+                << "\nRun `roche_limit_cli ip <action> -h` for action help.\n";
+        }
+        return out.str();
+    }
+
+    if (topic == "key") {
+        if (!operation.empty()) {
+            if (operation == "list") {
+                usage("roche_limit_cli key list");
+                out << "\nLists key prefixes, scopes, levels, status, expiry, and usage stats.\n";
+            } else if (operation == "add") {
+                usage("roche_limit_cli key add <plain-api-key> [--service <name|*>] [--level <0-99>] [--expires-at <timestamp>] [--note TEXT]");
+                out << "\nStores a supplied key. Plain key material is not stored.\n";
+            } else if (operation == "gen") {
+                usage("roche_limit_cli key gen [--service <name|*>] [--level <0-99>] [--expires-at <timestamp>] [--note TEXT]");
+                out << "\nGenerates a key and displays the plain value once.\n";
+            } else if (operation == "rotate") {
+                usage("roche_limit_cli key rotate <api-key-id> [options] [--dry-run|--force]");
+                out << "\nCreates a replacement and disables the old key.\n"
+                    << "Use --dry-run to preview. --force is required to execute.\n";
+            } else if (operation == "set") {
+                usage("roche_limit_cli key set <api-key-id> [--service <name|*>] [--level <0-99>] [--expires-at <timestamp>] [--note TEXT]");
+                out << "\nUpdates key scope, level, expiry, or note.\n";
+            } else if (operation == "disable") {
+                usage("roche_limit_cli key disable <api-key-id> [--dry-run|--force]");
+                out << "\nDisables one key. Use --dry-run first; --force executes.\n";
+            } else if (operation == "disable-all") {
+                usage("roche_limit_cli key disable-all [--dry-run|--force]");
+                out << "\nEmergency operation that disables every enabled key.\n"
+                    << "Use --dry-run first; --force executes.\n";
+            } else if (operation == "remove") {
+                usage("roche_limit_cli key remove <api-key-id> [--dry-run|--force]");
+                out << "\nPermanently deletes one key. Use --dry-run first; --force executes.\n";
+            } else {
+                out << "Unknown key action: " << operation << "\n\n";
+            }
+        }
+        if (operation.empty() || out.str().starts_with("Unknown")) {
+            out << "Manage API keys and service scopes.\n\n";
+            usage("roche_limit_cli key <action> [options]");
+            out << "\nRead actions:\n"
+                << "  list          List keys without exposing plain values\n"
+                << "\nCreate/update actions:\n"
+                << "  add           Store a supplied API key\n"
+                << "  gen           Generate and display a new API key once\n"
+                << "  set           Update scope, level, expiry, or note\n"
+                << "\nHigh-impact actions:\n"
+                << "  rotate        Replace a key and disable the old key\n"
+                << "  disable       Disable one key\n"
+                << "  disable-all   Emergency-disable every enabled key\n"
+                << "  remove        Permanently delete one key\n"
+                << "\nHigh-impact actions support --dry-run and require --force to execute.\n"
+                << "Run `roche_limit_cli key <action> -h` for action help.\n";
+        }
+        return out.str();
+    }
+
+    if (topic == "user") {
+        if (!operation.empty()) {
+            if (operation == "list") {
+                usage("roche_limit_cli user list");
+                out << "\nLists users and service-specific access levels.\n";
+            } else if (operation == "add") {
+                usage("roche_limit_cli user add <username> [--password <plain>] [--note TEXT]");
+                out << "\nCreates a user and password credential.\n";
+            } else if (operation == "set") {
+                usage("roche_limit_cli user set <user-id> [options] [--dry-run|--force]");
+                out << "\nUpdates note, enabled state, or a service level.\n"
+                    << "Changes that revoke sessions support --dry-run and require --force.\n";
+            } else if (operation == "set-password") {
+                usage("roche_limit_cli user set-password <user-id> [--password <plain>] [--dry-run|--force]");
+                out << "\nChanges the password and revokes the user's sessions. --force is required.\n";
+            } else if (operation == "session-list") {
+                usage("roche_limit_cli user session-list [--user-id <id>]");
+                out << "\nLists sessions, optionally filtered by user.\n";
+            } else if (operation == "revoke-session") {
+                usage("roche_limit_cli user revoke-session <session-id> [--dry-run|--force]");
+                out << "\nRevokes one session. --force is required.\n";
+            } else if (operation == "revoke-all-sessions") {
+                usage("roche_limit_cli user revoke-all-sessions <user-id> [--dry-run|--force]");
+                out << "\nRevokes every session belonging to one user. --force is required.\n";
+            } else if (operation == "revoke-all-user-sessions") {
+                usage("roche_limit_cli user revoke-all-user-sessions [--dry-run|--force]");
+                out << "\nEmergency operation that revokes every active user session. --force is required.\n";
+            } else if (operation == "disable") {
+                usage("roche_limit_cli user disable <user-id> [--dry-run|--force]");
+                out << "\nDisables a user and revokes their sessions. --force is required.\n";
+            } else if (operation == "remove") {
+                usage("roche_limit_cli user remove <user-id> [--dry-run|--force]");
+                out << "\nDeletes a user and dependent records. --force is required.\n";
+            } else {
+                out << "Unknown user action: " << operation << "\n\n";
+            }
+        }
+        if (operation.empty() || out.str().starts_with("Unknown")) {
+            out << "Manage users, service access levels, and sessions.\n\n";
+            usage("roche_limit_cli user <action> [options]");
+            out << "\nUser actions:\n"
+                << "  list                      List users and service levels\n"
+                << "  add                       Create a user\n"
+                << "  set                       Update user state or service level\n"
+                << "  set-password              Change password and revoke sessions\n"
+                << "  disable                   Disable a user and revoke sessions\n"
+                << "  remove                    Delete a user and dependent records\n"
+                << "\nSession actions:\n"
+                << "  session-list              List sessions\n"
+                << "  revoke-session            Revoke one session\n"
+                << "  revoke-all-sessions       Revoke one user's sessions\n"
+                << "  revoke-all-user-sessions  Emergency-revoke all sessions\n"
+                << "\nHigh-impact actions support --dry-run and require --force to execute.\n"
+                << "Run `roche_limit_cli user <action> -h` for action help.\n";
+        }
+        return out.str();
+    }
+
+    if (topic == "audit") {
+        if (!operation.empty()) {
+            if (operation == "list") {
+                usage("roche_limit_cli audit list [filters]");
+                out << "\nFilters:\n"
+                    << "  --limit <1-500>       Maximum rows, default 50\n"
+                    << "  --event-type <type>   Match event_type\n"
+                    << "  --result <result>     Match result\n"
+                    << "  --service <name>      Match service_name\n"
+                    << "  --request-id <id>     Match request_id\n"
+                    << "  --actor-type <type>   Match actor_type\n"
+                    << "  --reason <reason>     Match reason\n"
+                    << "  --client-ip <ip>      Match client_ip\n";
+            } else if (operation == "show") {
+                usage("roche_limit_cli audit show <event-id>");
+                out << "\nShows all stored fields, metadata, and hash-chain values.\n";
+            } else if (operation == "cleanup") {
+                usage("roche_limit_cli audit cleanup [--retention-days <days>] [--max-rows <count>]");
+                out << "\nApplies retention and row-cap limits and records an audit_cleanup event.\n";
+            } else {
+                out << "Unknown audit action: " << operation << "\n\n";
+            }
+        }
+        if (operation.empty() || out.str().starts_with("Unknown")) {
+            out << "Inspect audit events and manage retention.\n\n";
+            usage("roche_limit_cli audit <action> [options]");
+            out << "\nRead actions:\n"
+                << "  list       List recent events with optional exact-match filters\n"
+                << "  show       Show every stored field for one event\n"
+                << "\nRetention actions:\n"
+                << "  cleanup    Apply retention and row-cap limits\n"
+                << "\nRead actions do not create audit events.\n"
+                << "Run `roche_limit_cli audit <action> -h` for action help.\n";
+        }
+        return out.str();
+    }
+
+    out << "Unknown help topic: " << topic << "\n\n" << help_text();
+    return out.str();
+}
+
+void print_help(std::optional<std::string_view> domain,
+                std::optional<std::string_view> action) {
+    std::cout << help_text(domain, action);
+}
+
+void print_usage() {
+    print_help();
 }
 
 }  // namespace roche_limit::cli

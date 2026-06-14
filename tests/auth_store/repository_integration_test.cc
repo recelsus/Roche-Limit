@@ -438,6 +438,63 @@ void test_audit_event_metadata_and_hash_chain_are_standardized() {
          "audit metadata should wrap details under a standard key");
 }
 
+void test_audit_events_can_be_listed_filtered_and_read() {
+  const auto database_path = test_database_path("audit-read");
+  reset_database(database_path);
+  roche_limit::auth_store::bootstrap_sqlite_schema_at(database_path, {});
+
+  AuditRepository repository(database_path);
+  repository.insert_event(NewAuditEvent{
+      .event_type = "auth_deny",
+      .actor_type = "api_key",
+      .actor_id = std::string("key-1"),
+      .service_name = std::string("radiko"),
+      .access_level = 60,
+      .client_ip = std::string("34.116.28.169"),
+      .request_id = std::string("rl-91"),
+      .result = "deny",
+      .reason = "insufficient_level",
+      .metadata_json = std::string("{\"required_level\":70}"),
+  });
+  repository.insert_event(NewAuditEvent{
+      .event_type = "login_success",
+      .actor_type = "user",
+      .actor_id = std::string("7"),
+      .result = "success",
+  });
+
+  const auto latest =
+      repository.list_events(roche_limit::auth_store::AuditEventFilter{
+          .limit = 1,
+      });
+  expect(latest.size() == 1 && latest[0].event_type == "login_success",
+         "audit list should return newest events first and respect limit");
+
+  const auto denied =
+      repository.list_events(roche_limit::auth_store::AuditEventFilter{
+          .limit = 50,
+          .event_type = std::string("auth_deny"),
+          .result = std::string("deny"),
+          .service_name = std::string("radiko"),
+          .request_id = std::string("rl-91"),
+      });
+  expect(denied.size() == 1, "audit list should apply all filters");
+  expect(denied[0].reason == "insufficient_level",
+         "audit list should return event details");
+  expect(denied[0].metadata_json.has_value() &&
+             denied[0].metadata_json->find("\"required_level\":70") !=
+                 std::string::npos,
+         "audit list should return normalized metadata");
+
+  const auto event = repository.get_event(denied[0].id);
+  expect(event.has_value() && event->request_id == "rl-91",
+         "audit event should be readable by id");
+  expect(!event->event_hash.empty(),
+         "audit event read should include hash-chain values");
+  expect(!repository.get_event(999999).has_value(),
+         "missing audit event id should return no record");
+}
+
 void test_concurrent_auth_requests_share_repository_safely() {
   const auto database_path = test_database_path("concurrent-auth");
   reset_database(database_path);
@@ -540,6 +597,7 @@ int main() {
   test_user_session_lookup_returns_non_revoked_rows();
   test_audit_cleanup_records_event_and_enforces_row_cap();
   test_audit_event_metadata_and_hash_chain_are_standardized();
+  test_audit_events_can_be_listed_filtered_and_read();
   test_concurrent_auth_requests_share_repository_safely();
   test_write_fails_cleanly_while_database_is_locked();
   std::cout << "roche_limit_auth_store_integration_tests: ok" << std::endl;

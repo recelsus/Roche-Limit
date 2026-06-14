@@ -32,6 +32,27 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        if (roche_limit::cli::is_help_argument(args[1])) {
+            roche_limit::cli::print_help(
+                args.size() >= 3
+                    ? std::optional<std::string_view>(args[2])
+                    : std::nullopt,
+                args.size() >= 4
+                    ? std::optional<std::string_view>(args[3])
+                    : std::nullopt);
+            return 0;
+        }
+        if (args.size() >= 3 &&
+            roche_limit::cli::is_help_argument(args[2])) {
+            roche_limit::cli::print_help(args[1]);
+            return 0;
+        }
+        if (args.size() >= 4 &&
+            roche_limit::cli::is_help_argument(args.back())) {
+            roche_limit::cli::print_help(args[1], args[2]);
+            return 0;
+        }
+
         const auto executable_path = argc > 0 ? std::filesystem::path(argv[0]) : std::filesystem::path{};
         const auto bootstrap_result = roche_limit::auth_store::bootstrap_sqlite_schema(executable_path);
         RuleRepository repository(bootstrap_result.database_path);
