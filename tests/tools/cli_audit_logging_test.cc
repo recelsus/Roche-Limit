@@ -101,6 +101,35 @@ void test_help_text_is_organized_by_domain_and_action() {
          "audit list help should describe filters");
 }
 
+void test_command_domains_and_actions_are_recognized_before_dispatch() {
+  expect(roche_limit::cli::is_known_command_domain("ip"),
+         "ip should be a known command domain");
+  expect(roche_limit::cli::is_known_command_domain("audit"),
+         "audit should be a known command domain");
+  expect(!roche_limit::cli::is_known_command_domain("unknown"),
+         "unknown command domain should be rejected");
+
+  expect(roche_limit::cli::is_known_command_action("ip", "set"),
+         "ip set should be a known action");
+  expect(roche_limit::cli::is_known_command_action("key", "rotate"),
+         "key rotate should be a known action");
+  expect(roche_limit::cli::is_known_command_action("user", "session-list"),
+         "user session-list should be a known action");
+  expect(roche_limit::cli::is_known_command_action("audit", "show"),
+         "audit show should be a known action");
+  expect(!roche_limit::cli::is_known_command_action("ip", "unknown"),
+         "unknown action should be rejected");
+
+  expect(roche_limit::cli::command_action_requires_target("ip", "add"),
+         "ip add should require a target");
+  expect(roche_limit::cli::command_action_requires_target("audit", "show"),
+         "audit show should require a target");
+  expect(!roche_limit::cli::command_action_requires_target("ip", "list"),
+         "ip list should not require a target");
+  expect(!roche_limit::cli::command_action_requires_target("key", "gen"),
+         "key gen should not require a target");
+}
+
 } // namespace
 
 int main() {
@@ -109,6 +138,7 @@ int main() {
   test_force_flag_is_required_for_destructive_commands();
   test_dry_run_flag_is_detected();
   test_help_text_is_organized_by_domain_and_action();
+  test_command_domains_and_actions_are_recognized_before_dispatch();
   std::cout << "roche_limit_cli_audit_logging_tests: ok" << std::endl;
   return 0;
 }

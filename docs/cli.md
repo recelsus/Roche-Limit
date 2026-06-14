@@ -29,6 +29,10 @@ roche_limit_cli help key disable-all
 
 Help is processed before opening the database.
 
+Entering only a command domain, such as `roche_limit_cli ip`, falls back to
+that domain's help. Unknown domains/actions and actions missing their required
+target also display the nearest available help and exit with a non-zero status.
+
 ## Usage
 
 ### IP

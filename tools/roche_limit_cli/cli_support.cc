@@ -251,6 +251,51 @@ bool is_help_argument(std::string_view value) {
     return value == "-h" || value == "--help" || value == "help";
 }
 
+bool is_known_command_domain(std::string_view domain) {
+    return domain == "ip" || domain == "key" || domain == "user" || domain == "audit";
+}
+
+bool is_known_command_action(std::string_view domain, std::string_view action) {
+    if (domain == "ip") {
+        return action == "list" || action == "add" || action == "set" ||
+               action == "remove" || action == "compact-ids";
+    }
+    if (domain == "key") {
+        return action == "list" || action == "add" || action == "gen" ||
+               action == "rotate" || action == "set" || action == "disable" ||
+               action == "disable-all" || action == "remove" ||
+               action == "compact-ids";
+    }
+    if (domain == "user") {
+        return action == "list" || action == "add" || action == "set" ||
+               action == "set-password" || action == "session-list" ||
+               action == "revoke-session" || action == "revoke-all-sessions" ||
+               action == "revoke-all-user-sessions" || action == "disable" ||
+               action == "remove" || action == "compact-ids";
+    }
+    if (domain == "audit") {
+        return action == "list" || action == "show" || action == "cleanup";
+    }
+    return false;
+}
+
+bool command_action_requires_target(std::string_view domain,
+                                    std::string_view action) {
+    if (domain == "ip") {
+        return action == "add" || action == "set" || action == "remove";
+    }
+    if (domain == "key") {
+        return action == "add" || action == "rotate" || action == "set" ||
+               action == "disable" || action == "remove";
+    }
+    if (domain == "user") {
+        return action == "add" || action == "set" || action == "set-password" ||
+               action == "revoke-session" || action == "revoke-all-sessions" ||
+               action == "disable" || action == "remove";
+    }
+    return domain == "audit" && action == "show";
+}
+
 std::string help_text(std::optional<std::string_view> domain,
                       std::optional<std::string_view> action) {
     std::ostringstream out;

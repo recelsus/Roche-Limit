@@ -55,6 +55,10 @@ std::string prompt_password();
 std::string option_or_prompt_password(const OptionsMap& options);
 
 bool is_help_argument(std::string_view value);
+bool is_known_command_domain(std::string_view domain);
+bool is_known_command_action(std::string_view domain, std::string_view action);
+bool command_action_requires_target(std::string_view domain,
+                                    std::string_view action);
 std::string help_text(std::optional<std::string_view> domain = std::nullopt,
                       std::optional<std::string_view> action = std::nullopt);
 void print_help(std::optional<std::string_view> domain = std::nullopt,

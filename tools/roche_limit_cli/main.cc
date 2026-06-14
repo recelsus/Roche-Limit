@@ -53,13 +53,35 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
+        const auto& domain = args[1];
+        if (!roche_limit::cli::is_known_command_domain(domain)) {
+            std::cerr << "roche-limit-cli: unknown command: " << domain << "\n\n";
+            roche_limit::cli::print_usage();
+            return 1;
+        }
+        if (args.size() < 3) {
+            roche_limit::cli::print_help(domain);
+            return 1;
+        }
+        const auto& action = args[2];
+        if (!roche_limit::cli::is_known_command_action(domain, action)) {
+            std::cerr << "roche-limit-cli: unknown " << domain
+                      << " action: " << action << "\n\n";
+            roche_limit::cli::print_help(domain);
+            return 1;
+        }
+        if (args.size() < 4 &&
+            roche_limit::cli::command_action_requires_target(domain, action)) {
+            roche_limit::cli::print_help(domain, action);
+            return 1;
+        }
+
         const auto executable_path = argc > 0 ? std::filesystem::path(argv[0]) : std::filesystem::path{};
         const auto bootstrap_result = roche_limit::auth_store::bootstrap_sqlite_schema(executable_path);
         RuleRepository repository(bootstrap_result.database_path);
         UserRepository user_repository(bootstrap_result.database_path);
         roche_limit::auth_store::AuditRepository audit_repository(bootstrap_result.database_path);
 
-        const auto& domain = args[1];
         if (domain == "ip") {
             roche_limit::cli::handle_ip_command(repository, audit_repository, args);
             return 0;
