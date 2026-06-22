@@ -1,5 +1,6 @@
 #include "audit_command.h"
 #include "audit_logging.h"
+#include "cert_command.h"
 #include "cli_support.h"
 #include "ip_command.h"
 #include "key_command.h"
@@ -88,6 +89,10 @@ int main(int argc, char* argv[]) {
         }
         if (domain == "key") {
             roche_limit::cli::handle_key_command(repository, audit_repository, args);
+            return 0;
+        }
+        if (domain == "cert") {
+            roche_limit::cli::handle_cert_command(repository, audit_repository, args);
             return 0;
         }
         if (domain == "audit") {

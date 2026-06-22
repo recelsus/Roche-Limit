@@ -99,6 +99,17 @@ void test_help_text_is_organized_by_domain_and_action() {
   const auto audit_list = roche_limit::cli::help_text("audit", "list");
   expect(audit_list.find("--request-id") != std::string::npos,
          "audit list help should describe filters");
+
+  const auto cert = roche_limit::cli::help_text("cert");
+  expect(cert.find("client certificates") != std::string::npos,
+         "cert help should describe client certificate management");
+  expect(cert.find("disable") != std::string::npos &&
+             cert.find("--force") != std::string::npos,
+         "cert help should include high-impact actions");
+
+  const auto cert_add = roche_limit::cli::help_text("cert", "add");
+  expect(cert_add.find("roche_limit_cli cert add") != std::string::npos,
+         "cert add help should include usage");
 }
 
 void test_command_domains_and_actions_are_recognized_before_dispatch() {
@@ -106,6 +117,8 @@ void test_command_domains_and_actions_are_recognized_before_dispatch() {
          "ip should be a known command domain");
   expect(roche_limit::cli::is_known_command_domain("audit"),
          "audit should be a known command domain");
+  expect(roche_limit::cli::is_known_command_domain("cert"),
+         "cert should be a known command domain");
   expect(!roche_limit::cli::is_known_command_domain("unknown"),
          "unknown command domain should be rejected");
 
@@ -117,6 +130,8 @@ void test_command_domains_and_actions_are_recognized_before_dispatch() {
          "user session-list should be a known action");
   expect(roche_limit::cli::is_known_command_action("audit", "show"),
          "audit show should be a known action");
+  expect(roche_limit::cli::is_known_command_action("cert", "add"),
+         "cert add should be a known action");
   expect(!roche_limit::cli::is_known_command_action("ip", "unknown"),
          "unknown action should be rejected");
 
@@ -124,6 +139,8 @@ void test_command_domains_and_actions_are_recognized_before_dispatch() {
          "ip add should require a target");
   expect(roche_limit::cli::command_action_requires_target("audit", "show"),
          "audit show should require a target");
+  expect(roche_limit::cli::command_action_requires_target("cert", "disable"),
+         "cert disable should require a target");
   expect(!roche_limit::cli::command_action_requires_target("ip", "list"),
          "ip list should not require a target");
   expect(!roche_limit::cli::command_action_requires_target("key", "gen"),

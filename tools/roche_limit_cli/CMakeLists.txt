@@ -1,6 +1,7 @@
 add_executable(roche_limit_cli
     audit_command.cc
     audit_logging.cc
+    cert_command.cc
     cli_support.cc
     ip_command.cc
     key_command.cc

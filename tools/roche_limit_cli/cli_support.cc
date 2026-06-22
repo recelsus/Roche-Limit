@@ -252,7 +252,8 @@ bool is_help_argument(std::string_view value) {
 }
 
 bool is_known_command_domain(std::string_view domain) {
-    return domain == "ip" || domain == "key" || domain == "user" || domain == "audit";
+    return domain == "ip" || domain == "key" || domain == "cert" ||
+           domain == "user" || domain == "audit";
 }
 
 bool is_known_command_action(std::string_view domain, std::string_view action) {
@@ -265,6 +266,11 @@ bool is_known_command_action(std::string_view domain, std::string_view action) {
                action == "rotate" || action == "set" || action == "disable" ||
                action == "disable-all" || action == "remove" ||
                action == "compact-ids";
+    }
+    if (domain == "cert") {
+        return action == "list" || action == "add" || action == "set" ||
+               action == "disable" || action == "enable" ||
+               action == "remove";
     }
     if (domain == "user") {
         return action == "list" || action == "add" || action == "set" ||
@@ -288,6 +294,10 @@ bool command_action_requires_target(std::string_view domain,
         return action == "add" || action == "rotate" || action == "set" ||
                action == "disable" || action == "remove";
     }
+    if (domain == "cert") {
+        return action == "add" || action == "set" || action == "disable" ||
+               action == "enable" || action == "remove";
+    }
     if (domain == "user") {
         return action == "add" || action == "set" || action == "set-password" ||
                action == "revoke-session" || action == "revoke-all-sessions" ||
@@ -309,6 +319,7 @@ std::string help_text(std::optional<std::string_view> domain,
         out << "\nCommands:\n"
             << "  ip      Manage IP allow/deny rules and service levels\n"
             << "  key     Manage API keys, scopes, rotation, and emergency disable\n"
+            << "  cert    Manage client certificates and service levels\n"
             << "  user    Manage users, service levels, and sessions\n"
             << "  audit   Inspect audit events and manage retention\n"
             << "\nHelp:\n"
@@ -407,6 +418,48 @@ std::string help_text(std::optional<std::string_view> domain,
                 << "  remove        Permanently delete one key\n"
                 << "\nHigh-impact actions support --dry-run and require --force to execute.\n"
                 << "Run `roche_limit_cli key <action> -h` for action help.\n";
+        }
+        return out.str();
+    }
+
+    if (topic == "cert") {
+        if (!operation.empty()) {
+            if (operation == "list") {
+                usage("roche_limit_cli cert list");
+                out << "\nLists client certificates and service-specific levels.\n";
+            } else if (operation == "add") {
+                usage("roche_limit_cli cert add <fingerprint> [--service <name|*>] [--level <0-99>] [--serial TEXT] [--subject TEXT] [--issuer TEXT] [--not-before <timestamp>] [--not-after <timestamp>] [--note TEXT]");
+                out << "\nAdds a client certificate and initial service level.\n";
+            } else if (operation == "set") {
+                usage("roche_limit_cli cert set <cert-id> [--service <name|*>] --level <0-99> [--note TEXT]");
+                out << "\nUpserts a service-specific level for a certificate.\n";
+            } else if (operation == "disable") {
+                usage("roche_limit_cli cert disable <cert-id> [--dry-run|--force]");
+                out << "\nDisables one certificate. Use --dry-run first; --force executes.\n";
+            } else if (operation == "enable") {
+                usage("roche_limit_cli cert enable <cert-id> [--dry-run|--force]");
+                out << "\nEnables one certificate. Use --dry-run first; --force executes.\n";
+            } else if (operation == "remove") {
+                usage("roche_limit_cli cert remove <cert-id> [--dry-run|--force]");
+                out << "\nPermanently deletes one certificate and service levels.\n";
+            } else {
+                out << "Unknown cert action: " << operation << "\n\n";
+            }
+        }
+        if (operation.empty() || out.str().starts_with("Unknown")) {
+            out << "Manage client certificates and service levels.\n\n";
+            usage("roche_limit_cli cert <action> [options]");
+            out << "\nRead actions:\n"
+                << "  list       List certificates and service levels\n"
+                << "\nCreate/update actions:\n"
+                << "  add        Add a certificate and initial service level\n"
+                << "  set        Upsert a service-specific level\n"
+                << "\nHigh-impact actions:\n"
+                << "  disable    Disable one certificate\n"
+                << "  enable     Enable one certificate\n"
+                << "  remove     Permanently delete one certificate\n"
+                << "\nHigh-impact actions support --dry-run and require --force to execute.\n"
+                << "Run `roche_limit_cli cert <action> -h` for action help.\n";
         }
         return out.str();
     }
