@@ -24,6 +24,9 @@ using roche_limit::auth_core::AuthDecision;
 using roche_limit::auth_core::AuthRepository;
 using roche_limit::auth_core::AuthResult;
 using roche_limit::auth_core::AuthService;
+using roche_limit::auth_core::ClientCertContext;
+using roche_limit::auth_core::ClientCertRecord;
+using roche_limit::auth_core::ClientCertServiceLevelRecord;
 using roche_limit::auth_core::IpRuleEffect;
 using roche_limit::auth_core::IpRuleRecord;
 using roche_limit::auth_core::IpRuleType;
@@ -38,8 +41,11 @@ struct FakeRepository final : AuthRepository {
   std::vector<IpRuleRecord> allow_rules;
   std::vector<IpServiceLevelRecord> ip_service_levels;
   std::vector<ApiKeyRecord> api_keys;
+  std::vector<ClientCertRecord> client_certs;
+  std::vector<ClientCertServiceLevelRecord> client_cert_service_levels;
   std::vector<std::int64_t> successful_api_key_ids;
   std::vector<std::int64_t> failed_api_key_ids;
+  std::vector<std::int64_t> successful_client_cert_ids;
 
   std::vector<IpRuleRecord> list_ip_rules(IpRuleEffect effect) const override {
     return effect == IpRuleEffect::Deny ? deny_rules : allow_rules;
@@ -113,6 +119,40 @@ struct FakeRepository final : AuthRepository {
     const_cast<FakeRepository *>(this)->failed_api_key_ids.push_back(
         api_key_id);
   }
+
+  std::optional<ClientCertRecord>
+  find_client_cert(std::string_view fingerprint_sha256) const override {
+    for (const auto &record : client_certs) {
+      if (record.enabled && record.fingerprint_sha256 == fingerprint_sha256) {
+        return record;
+      }
+    }
+    return std::nullopt;
+  }
+
+  std::optional<ClientCertServiceLevelRecord>
+  find_client_cert_service_level(std::int64_t client_cert_id,
+                                 std::string_view service_name) const override {
+    std::optional<ClientCertServiceLevelRecord> fallback;
+    for (const auto &record : client_cert_service_levels) {
+      if (record.client_cert_id != client_cert_id || !record.enabled) {
+        continue;
+      }
+      if (record.service_name == service_name) {
+        return record;
+      }
+      if (record.service_name == "*") {
+        fallback = record;
+      }
+    }
+    return fallback;
+  }
+
+  void note_client_cert_success(std::int64_t client_cert_id,
+                                std::string_view) const override {
+    const_cast<FakeRepository *>(this)->successful_client_cert_ids.push_back(
+        client_cert_id);
+  }
 };
 
 [[noreturn]] void fail(std::string_view message) {
@@ -159,6 +199,41 @@ ApiKeyRecord make_api_key(std::int64_t id, std::string_view plain_key,
       .last_used_ip = std::nullopt,
       .last_failed_at = std::nullopt,
       .failed_attempts = 0,
+      .note = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+  };
+}
+
+ClientCertRecord make_client_cert(std::int64_t id,
+                                  std::string fingerprint_sha256) {
+  return ClientCertRecord{
+      .id = id,
+      .fingerprint_sha256 = std::move(fingerprint_sha256),
+      .serial_number = std::nullopt,
+      .subject_dn = std::nullopt,
+      .issuer_dn = std::nullopt,
+      .enabled = true,
+      .not_before = std::nullopt,
+      .not_after = std::nullopt,
+      .last_used_at = std::nullopt,
+      .last_used_ip = std::nullopt,
+      .note = std::nullopt,
+      .created_at = "",
+      .updated_at = "",
+      .revoked_at = std::nullopt,
+  };
+}
+
+ClientCertServiceLevelRecord make_client_cert_service_level(
+    std::int64_t id, std::int64_t client_cert_id, std::string service_name,
+    int access_level) {
+  return ClientCertServiceLevelRecord{
+      .id = id,
+      .client_cert_id = client_cert_id,
+      .service_name = std::move(service_name),
+      .access_level = access_level,
+      .enabled = true,
       .note = std::nullopt,
       .created_at = "",
       .updated_at = "",
@@ -405,6 +480,134 @@ void test_required_access_level_allows_exact_match() {
          "api key reason should be preserved");
 }
 
+void test_default_access_level_can_allow_public_service() {
+  auto repository = std::make_shared<FakeRepository>();
+  AuthService service(repository);
+
+  const AuthResult result = service.authorize(RequestContext{
+      .client_ip = "198.51.100.20",
+      .service_name = "public",
+      .api_key = std::nullopt,
+      .required_access_level = 30,
+      .default_access_level = 30,
+      .default_access_level_present = true,
+      .default_access_level_valid = true,
+  });
+
+  expect(result.decision == AuthDecision::Allow,
+         "default access level should allow public service");
+  expect(result.access_level == 30, "default level should be preserved");
+  expect(result.reason == "default_level",
+         "default level should set reason when it wins");
+}
+
+void test_client_cert_elevates_unknown_ip() {
+  setenv("ROCHE_LIMIT_DEPLOYMENT_MODE", "public", 1);
+  auto repository = std::make_shared<FakeRepository>();
+  const std::string fingerprint(64, 'a');
+  repository->client_certs = {make_client_cert(21, fingerprint)};
+  repository->client_cert_service_levels = {
+      make_client_cert_service_level(22, 21, "*", 90),
+  };
+  AuthService service(repository);
+
+  const AuthResult result = service.authorize(RequestContext{
+      .client_ip = "198.51.100.20",
+      .service_name = "karing",
+      .api_key = std::nullopt,
+      .required_access_level = 30,
+      .client_cert =
+          ClientCertContext{
+              .verify = "SUCCESS",
+              .fingerprint_sha256 = fingerprint,
+              .fingerprint_valid = true,
+          },
+  });
+
+  expect(result.decision == AuthDecision::Allow,
+         "registered client cert should allow unknown IP");
+  expect(result.access_level == 90, "client cert should elevate level");
+  expect(result.reason == "client_cert_allow",
+         "client cert should set allow reason when it is sole positive source");
+  expect(result.client_cert_record_id.has_value() &&
+             *result.client_cert_record_id == 21,
+         "client cert id should be returned");
+  expect(result.client_cert_service_level_id.has_value() &&
+             *result.client_cert_service_level_id == 22,
+         "client cert service level id should be returned");
+  expect(repository->successful_client_cert_ids ==
+             std::vector<std::int64_t>{21},
+         "successful client cert use should be tracked");
+  unsetenv("ROCHE_LIMIT_DEPLOYMENT_MODE");
+}
+
+void test_client_cert_verify_failure_falls_back_to_api_key() {
+  auto repository = std::make_shared<FakeRepository>();
+  const std::string fingerprint(64, 'b');
+  repository->client_certs = {make_client_cert(31, fingerprint)};
+  repository->client_cert_service_levels = {
+      make_client_cert_service_level(32, 31, "*", 90),
+  };
+  repository->api_keys = {
+      make_api_key(33, "fallback-key", std::string("karing"), 60),
+  };
+  AuthService service(repository);
+
+  const AuthResult result = service.authorize(RequestContext{
+      .client_ip = "198.51.100.20",
+      .service_name = "karing",
+      .api_key = std::string("fallback-key"),
+      .required_access_level = 30,
+      .client_cert =
+          ClientCertContext{
+              .verify = "FAILED",
+              .fingerprint_sha256 = fingerprint,
+              .fingerprint_valid = true,
+          },
+  });
+
+  expect(result.decision == AuthDecision::Allow,
+         "failed client cert verification should not block API key auth");
+  expect(result.access_level == 60, "API key level should be used");
+  expect(result.reason == "api_key_elevated",
+         "API key reason should win when cert is ignored");
+  expect(!result.client_cert_record_id.has_value(),
+         "failed verify cert should not resolve a cert id");
+}
+
+void test_ip_deny_wins_over_client_cert() {
+  auto repository = std::make_shared<FakeRepository>();
+  const std::string fingerprint(64, 'c');
+  repository->deny_rules = {
+      make_ip_rule(40, "203.0.113.10", IpRuleEffect::Deny, IpRuleType::Single,
+                   32),
+  };
+  repository->client_certs = {make_client_cert(41, fingerprint)};
+  repository->client_cert_service_levels = {
+      make_client_cert_service_level(42, 41, "*", 90),
+  };
+  AuthService service(repository);
+
+  const AuthResult result = service.authorize(RequestContext{
+      .client_ip = "203.0.113.10",
+      .service_name = "karing",
+      .api_key = std::nullopt,
+      .required_access_level = 30,
+      .client_cert =
+          ClientCertContext{
+              .verify = "SUCCESS",
+              .fingerprint_sha256 = fingerprint,
+              .fingerprint_valid = true,
+          },
+  });
+
+  expect(result.decision == AuthDecision::Deny,
+         "IP deny should still win over client cert");
+  expect(result.reason == "ip_deny", "IP deny reason should be preserved");
+  expect(!result.client_cert_record_id.has_value(),
+         "hard IP deny should return before cert lookup");
+}
+
 void test_custom_service_level_boundaries_allow_non_round_numbers() {
   auto repository = std::make_shared<FakeRepository>();
   repository->allow_rules = {
@@ -488,6 +691,10 @@ int main() {
   test_allow_ip_without_service_level_defaults_to_60();
   test_required_access_level_denies_when_below_threshold();
   test_required_access_level_allows_exact_match();
+  test_default_access_level_can_allow_public_service();
+  test_client_cert_elevates_unknown_ip();
+  test_client_cert_verify_failure_falls_back_to_api_key();
+  test_ip_deny_wins_over_client_cert();
   test_custom_service_level_boundaries_allow_non_round_numbers();
   test_public_like_mode_defaults_unknown_and_shared_allow_to_zero();
 

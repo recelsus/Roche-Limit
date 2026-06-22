@@ -29,6 +29,8 @@ using roche_limit::auth_core::RequestContext;
 using roche_limit::auth_store::AuditRepository;
 using roche_limit::auth_store::NewApiKeyRecord;
 using roche_limit::auth_store::NewAuditEvent;
+using roche_limit::auth_store::NewClientCert;
+using roche_limit::auth_store::NewClientCertServiceLevel;
 using roche_limit::auth_store::NewIpRule;
 using roche_limit::auth_store::NewIpServiceLevel;
 using roche_limit::auth_store::NewUserRecord;
@@ -117,6 +119,10 @@ void test_bootstrap_creates_current_schema() {
          "new schema should include api key usage columns");
   expect(connection.column_exists("api_keys", "failed_attempts"),
          "new schema should include api key failure counters");
+  expect(connection.table_exists("client_certs"),
+         "client_certs table should exist");
+  expect(connection.table_exists("client_cert_service_levels"),
+         "client_cert_service_levels table should exist");
   expect(connection.table_exists("audit_events"),
          "audit_events table should exist");
   expect(connection.table_exists("login_failures"),
@@ -124,7 +130,7 @@ void test_bootstrap_creates_current_schema() {
   expect(connection.table_exists("csrf_tokens"),
          "csrf_tokens table should exist");
   expect(scalar_text(database_path, "SELECT value FROM schema_metadata WHERE "
-                                    "key = 'migration_version';") == "7",
+                                    "key = 'migration_version';") == "8",
          "new schema should mark latest migration version");
 }
 
@@ -174,8 +180,12 @@ CREATE TABLE api_keys (
          "migration should add login_failures table");
   expect(connection.table_exists("csrf_tokens"),
          "migration should add csrf_tokens table");
+  expect(connection.table_exists("client_certs"),
+         "migration should add client_certs table");
+  expect(connection.table_exists("client_cert_service_levels"),
+         "migration should add client_cert_service_levels table");
   expect(scalar_text(database_path, "SELECT value FROM schema_metadata WHERE "
-                                    "key = 'migration_version';") == "7",
+                                    "key = 'migration_version';") == "8",
          "migration should store latest migration version");
 }
 
@@ -258,6 +268,71 @@ void test_expired_api_key_is_auto_disabled() {
   const auto expired = repository.get_api_key(id);
   expect(expired.has_value() && !expired->enabled,
          "expired api key should be auto-disabled");
+}
+
+void test_client_cert_repository_resolves_service_levels() {
+  const auto database_path = test_database_path("client-cert");
+  reset_database(database_path);
+  roche_limit::auth_store::bootstrap_sqlite_schema_at(database_path, {});
+
+  RuleRepository repository(database_path);
+  const auto cert_id = repository.insert_client_cert(NewClientCert{
+      .fingerprint_sha256 =
+          std::string("aabbccddeeff00112233445566778899"
+                      "aabbccddeeff00112233445566778899"),
+      .serial_number = std::string("01"),
+      .subject_dn = std::string("CN=test"),
+      .issuer_dn = std::string("CN=ca"),
+      .not_before = std::nullopt,
+      .not_after = std::nullopt,
+      .note = std::string("cert"),
+  });
+  const auto wildcard_level_id =
+      repository.upsert_client_cert_service_level(NewClientCertServiceLevel{
+          .client_cert_id = cert_id,
+          .service_name = "*",
+          .access_level = 30,
+          .note = std::string("wildcard"),
+      });
+  const auto service_level_id =
+      repository.upsert_client_cert_service_level(NewClientCertServiceLevel{
+          .client_cert_id = cert_id,
+          .service_name = "radiko",
+          .access_level = 90,
+          .note = std::string("service"),
+      });
+
+  const auto cert = repository.find_client_cert(
+      "aabbccddeeff00112233445566778899"
+      "aabbccddeeff00112233445566778899");
+  expect(cert.has_value() && cert->id == cert_id,
+         "client cert should be found by fingerprint");
+
+  const auto service_level =
+      repository.find_client_cert_service_level(cert_id, "radiko");
+  expect(service_level.has_value() && service_level->id == service_level_id &&
+             service_level->access_level == 90,
+         "service-specific client cert level should win");
+
+  const auto fallback_level =
+      repository.find_client_cert_service_level(cert_id, "karing");
+  expect(fallback_level.has_value() &&
+             fallback_level->id == wildcard_level_id &&
+             fallback_level->access_level == 30,
+         "wildcard client cert level should fallback");
+
+  repository.note_client_cert_success(cert_id, "198.51.100.20");
+  const auto used = repository.get_client_cert(cert_id);
+  expect(used.has_value() && used->last_used_at.has_value() &&
+             used->last_used_ip == "198.51.100.20",
+         "client cert usage should be tracked");
+
+  repository.disable_client_cert(cert_id);
+  expect(!repository.find_client_cert(
+              "aabbccddeeff00112233445566778899"
+              "aabbccddeeff00112233445566778899")
+              .has_value(),
+         "disabled client cert should not be found for auth");
 }
 
 void test_rotated_api_key_pattern_disables_old_key() {
@@ -592,6 +667,7 @@ int main() {
   test_legacy_key_plain_column_is_migrated();
   test_api_key_repository_stores_hash_and_prefix_only();
   test_expired_api_key_is_auto_disabled();
+  test_client_cert_repository_resolves_service_levels();
   test_rotated_api_key_pattern_disables_old_key();
   test_ip_remove_deletes_service_levels();
   test_user_session_lookup_returns_non_revoked_rows();

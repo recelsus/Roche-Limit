@@ -20,6 +20,8 @@ namespace {
 using roche_limit::auth_core::AddressFamily;
 using roche_limit::auth_core::ApiKeyRecord;
 using roche_limit::auth_core::AuthRepository;
+using roche_limit::auth_core::ClientCertRecord;
+using roche_limit::auth_core::ClientCertServiceLevelRecord;
 using roche_limit::auth_core::CsrfTokenRecord;
 using roche_limit::auth_core::IpRuleEffect;
 using roche_limit::auth_core::IpRuleRecord;
@@ -71,6 +73,17 @@ struct FakeAuthRepository final : AuthRepository {
   }
   void note_api_key_success(std::int64_t, std::string_view) const override {}
   void note_api_key_failure(std::int64_t, std::string_view) const override {}
+  std::optional<ClientCertRecord>
+  find_client_cert(std::string_view) const override {
+    return std::nullopt;
+  }
+  std::optional<ClientCertServiceLevelRecord>
+  find_client_cert_service_level(std::int64_t,
+                                 std::string_view) const override {
+    return std::nullopt;
+  }
+  void note_client_cert_success(std::int64_t,
+                                std::string_view) const override {}
 };
 
 struct FakeLoginRepository final : LoginRepository {
