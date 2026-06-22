@@ -83,6 +83,24 @@ roche_limit_cli key remove <api-key-id> [--dry-run|--force]
 - 期限切れ key は lookup/list 時に自動で disable されます
 - `key_prefix` は DB 上で一意です
 
+### Client Certificate
+
+```text
+roche_limit_cli cert list
+roche_limit_cli cert add <fingerprint> [--service <name|*>] [--level <0-99>] [--serial TEXT] [--subject TEXT] [--issuer TEXT] [--not-before <timestamp>] [--not-after <timestamp>] [--note TEXT]
+roche_limit_cli cert set <cert-id> [--service <name|*>] --level <0-99> [--note TEXT]
+roche_limit_cli cert disable <cert-id> [--dry-run|--force]
+roche_limit_cli cert enable <cert-id> [--dry-run|--force]
+roche_limit_cli cert remove <cert-id> [--dry-run|--force]
+```
+
+- `cert add` は SHA-256 fingerprint を正規化して保存します
+- `cert add` は証明書本体と初期 service level を作成します。`--level` 省略時は既定 `10`
+- `cert set` は `client_cert_service_levels` を upsert します
+- `--service` 省略時または `--service *` は全サービス共通 fallback です
+- `cert disable`, `cert enable`, `cert remove` は高影響操作として扱い、実行には `--force` が必要です
+- `--dry-run` は対象証明書を表示し、変更せずに監査ログへ dry-run event を残します
+
 ### Audit
 
 ```text
