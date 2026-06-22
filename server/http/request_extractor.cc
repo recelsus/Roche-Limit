@@ -9,6 +9,7 @@
 #include <cctype>
 #include <charconv>
 #include <drogon/drogon.h>
+#include <optional>
 
 namespace roche_limit::server::http {
 
@@ -82,6 +83,35 @@ std::optional<std::string> extract_api_key(const drogon::HttpRequestPtr& request
     }
 
     return std::nullopt;
+}
+
+roche_limit::auth_core::ClientCertContext extract_client_cert(
+    const drogon::HttpRequestPtr& request) {
+    const auto verify = trim(request->getHeader("X-Client-Cert-Verify"));
+    const auto raw_fingerprint =
+        request->getHeader("X-Client-Cert-Fingerprint");
+    const auto fingerprint = normalize_client_cert_fingerprint(raw_fingerprint);
+    return roche_limit::auth_core::ClientCertContext{
+        .verify = verify,
+        .fingerprint_sha256 = fingerprint,
+        .serial_number =
+            trim(request->getHeader("X-Client-Cert-Serial")).empty()
+                ? std::nullopt
+                : std::optional<std::string>(
+                      trim(request->getHeader("X-Client-Cert-Serial"))),
+        .subject_dn =
+            trim(request->getHeader("X-Client-Cert-Subject")).empty()
+                ? std::nullopt
+                : std::optional<std::string>(
+                      trim(request->getHeader("X-Client-Cert-Subject"))),
+        .issuer_dn =
+            trim(request->getHeader("X-Client-Cert-Issuer")).empty()
+                ? std::nullopt
+                : std::optional<std::string>(
+                      trim(request->getHeader("X-Client-Cert-Issuer"))),
+        .fingerprint_valid =
+            raw_fingerprint.empty() || fingerprint.has_value(),
+    };
 }
 
 }  // namespace
@@ -184,6 +214,62 @@ ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view ra
     };
 }
 
+ParsedDefaultAccessLevel parse_default_access_level_header(
+    std::string_view raw_header_value) {
+    const auto header_value = trim(std::string(raw_header_value));
+    if (header_value.empty()) {
+        return ParsedDefaultAccessLevel{};
+    }
+    if (has_multiple_single_value_header_values(header_value)) {
+        return ParsedDefaultAccessLevel{
+            .value = 0,
+            .present = true,
+            .valid = false,
+        };
+    }
+
+    int parsed_level = 0;
+    const auto* begin = header_value.data();
+    const auto* end = begin + header_value.size();
+    const auto result = std::from_chars(begin, end, parsed_level);
+    if (result.ec != std::errc{} || result.ptr != end || parsed_level < 0 ||
+        parsed_level > 30) {
+        return ParsedDefaultAccessLevel{
+            .value = 0,
+            .present = true,
+            .valid = false,
+        };
+    }
+
+    return ParsedDefaultAccessLevel{
+        .value = parsed_level,
+        .present = true,
+        .valid = true,
+    };
+}
+
+std::optional<std::string>
+normalize_client_cert_fingerprint(std::string_view raw_fingerprint) {
+    std::string normalized;
+    for (const unsigned char ch : trim(std::string(raw_fingerprint))) {
+        if (ch == ':' || std::isspace(ch)) {
+            continue;
+        }
+        if (!std::isxdigit(ch)) {
+            return std::nullopt;
+        }
+        normalized.push_back(
+            static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+    }
+    if (normalized.empty()) {
+        return std::nullopt;
+    }
+    if (normalized.size() != 64) {
+        return std::nullopt;
+    }
+    return normalized;
+}
+
 std::string resolve_request_client_ip(const drogon::HttpRequestPtr& request) {
     return extract_client_ip(request);
 }
@@ -192,6 +278,14 @@ roche_limit::auth_core::RequestContext build_request_context(
     const drogon::HttpRequestPtr& request) {
     const auto parsed_required_level =
         parse_required_access_level_header(request->getHeader("X-Required-Level"));
+    const auto parsed_default_level =
+        parse_default_access_level_header(request->getHeader("X-Default-Level"));
+    const bool has_client_cert_header =
+        !request->getHeader("X-Client-Cert-Verify").empty() ||
+        !request->getHeader("X-Client-Cert-Fingerprint").empty() ||
+        !request->getHeader("X-Client-Cert-Serial").empty() ||
+        !request->getHeader("X-Client-Cert-Subject").empty() ||
+        !request->getHeader("X-Client-Cert-Issuer").empty();
     return roche_limit::auth_core::RequestContext{
         .client_ip = extract_client_ip(request),
         .service_name = trim(request->getHeader("X-Target-Service")),
@@ -201,6 +295,13 @@ roche_limit::auth_core::RequestContext build_request_context(
         .required_access_level = parsed_required_level.value,
         .required_access_level_present = parsed_required_level.present,
         .required_access_level_valid = parsed_required_level.valid,
+        .default_access_level = parsed_default_level.value,
+        .default_access_level_present = parsed_default_level.present,
+        .default_access_level_valid = parsed_default_level.valid,
+        .client_cert = has_client_cert_header
+                           ? std::optional<roche_limit::auth_core::ClientCertContext>(
+                                 extract_client_cert(request))
+                           : std::nullopt,
     };
 }
 

@@ -6,6 +6,7 @@
 #include "common/debug_log.h"
 
 #include <algorithm>
+#include <initializer_list>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -25,6 +26,22 @@ AuthService::AuthService(std::shared_ptr<const AuthRepository> repository)
 const AuthRepository *AuthService::repository_address() const noexcept {
   return repository_.get();
 }
+
+namespace {
+
+struct AccessSource {
+  int level;
+  std::string reason;
+};
+
+AccessSource better_source(AccessSource current, AccessSource candidate) {
+  if (candidate.level > current.level) {
+    return candidate;
+  }
+  return current;
+}
+
+} // namespace
 
 AuthResult AuthService::authorize(const RequestContext &request_context) const {
   if (roche_limit::common::verbose_logging_enabled()) {
@@ -140,8 +157,51 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
               << api_key_access_level << std::endl;
   }
 
-  const int final_access_level =
-      std::max(ip_access_level, api_key_access_level);
+  int client_cert_access_level = 0;
+  std::optional<std::int64_t> client_cert_record_id;
+  std::optional<std::int64_t> client_cert_service_level_id;
+  if (request_context.client_cert.has_value() &&
+      request_context.client_cert->verify == "SUCCESS" &&
+      request_context.client_cert->fingerprint_valid &&
+      request_context.client_cert->fingerprint_sha256.has_value()) {
+    const auto cert_record = repository_->find_client_cert(
+        *request_context.client_cert->fingerprint_sha256);
+    if (cert_record.has_value()) {
+      client_cert_record_id = cert_record->id;
+      if (const auto service_level =
+              repository_->find_client_cert_service_level(
+                  cert_record->id, request_context.service_name);
+          service_level.has_value()) {
+        client_cert_access_level = service_level->access_level;
+        client_cert_service_level_id = service_level->id;
+        repository_->note_client_cert_success(cert_record->id,
+                                              request_context.client_ip);
+      }
+    }
+  }
+  if (roche_limit::common::verbose_logging_enabled()) {
+    std::cerr << "[auth_core] client cert evaluation done level="
+              << client_cert_access_level << std::endl;
+  }
+
+  AccessSource source{
+      .level = ip_access_level,
+      .reason = reason,
+  };
+  source = better_source(
+      source, AccessSource{.level = request_context.default_access_level,
+                           .reason = auth_reason::DefaultLevel});
+  source = better_source(
+      source, AccessSource{.level = api_key_access_level,
+                           .reason = auth_reason::ApiKeyElevated});
+  source = better_source(
+      source,
+      AccessSource{.level = client_cert_access_level,
+                   .reason = source.level <= 0 ? auth_reason::ClientCertAllow
+                                               : auth_reason::ClientCertElevated});
+
+  const int final_access_level = source.level;
+  reason = source.reason;
   if (roche_limit::common::verbose_logging_enabled()) {
     std::cerr << "[auth_core] final level=" << final_access_level << std::endl;
   }
@@ -161,6 +221,8 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
         .reason = auth_reason::InsufficientLevel,
         .matched_ip_rule_id = matched_ip_rule_id,
         .api_key_record_id = api_key_record_id,
+        .client_cert_record_id = client_cert_record_id,
+        .client_cert_service_level_id = client_cert_service_level_id,
     };
   }
   const auto final_level = AccessLevel::from_int(final_access_level);
@@ -171,6 +233,8 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
         .reason = reason,
         .matched_ip_rule_id = matched_ip_rule_id,
         .api_key_record_id = api_key_record_id,
+        .client_cert_record_id = client_cert_record_id,
+        .client_cert_service_level_id = client_cert_service_level_id,
     };
   }
 
@@ -180,6 +244,8 @@ AuthResult AuthService::authorize(const RequestContext &request_context) const {
       .reason = reason,
       .matched_ip_rule_id = matched_ip_rule_id,
       .api_key_record_id = api_key_record_id,
+      .client_cert_record_id = client_cert_record_id,
+      .client_cert_service_level_id = client_cert_service_level_id,
   };
 }
 

@@ -4,6 +4,7 @@ add_library(roche_limit_auth_store
     src/audit_repository.cc
     src/rule_repository.cc
     src/rule_repository_api_key.cc
+    src/rule_repository_client_cert.cc
     src/rule_repository_compact.cc
     src/schema_bootstrap.cc
     src/sqlite_connection.cc

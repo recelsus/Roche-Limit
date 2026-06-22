@@ -81,7 +81,19 @@ bool has_invalid_single_value_auth_header(
          has_multiple_single_value_header_values(
              request->getHeader("Authorization")) ||
          has_multiple_single_value_header_values(request->getHeader("X-API-Key")) ||
-         has_multiple_single_value_header_values(request->getHeader("X-Real-IP"));
+         has_multiple_single_value_header_values(request->getHeader("X-Real-IP")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Default-Level")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Client-Cert-Verify")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Client-Cert-Fingerprint")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Client-Cert-Serial")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Client-Cert-Subject")) ||
+         has_multiple_single_value_header_values(
+             request->getHeader("X-Client-Cert-Issuer"));
 }
 
 std::string_view deployment_mode_env() {
@@ -210,6 +222,13 @@ void register_auth_routes(
             callback, "auth_invalid_required_level");
         return;
       }
+      if (!request_context.default_access_level_valid) {
+        deny_request(
+            request_id, request_context.service_name, request_context.client_ip,
+            roche_limit::auth_core::auth_reason::InvalidHeader,
+            callback, "auth_invalid_default_level");
+        return;
+      }
 
       if (roche_limit::common::verbose_logging_enabled()) {
         LOG_INFO << "auth request id=" << request_id
@@ -263,6 +282,11 @@ void register_auth_routes(
         response->addHeader("X-Auth-Key-Id",
                             std::to_string(*auth_result.api_key_record_id));
       }
+      if (auth_result.client_cert_record_id.has_value()) {
+        response->addHeader(
+            "X-Auth-Cert-Id",
+            std::to_string(*auth_result.client_cert_record_id));
+      }
 
       record_auth_request("auth",
                           auth_result.decision ==
@@ -290,6 +314,19 @@ void register_auth_routes(
                 : "deny",
             auth_result.reason);
       }
+      if (auth_result.client_cert_record_id.has_value()) {
+        record_containment_signal_for_subject(
+            ContainmentSubject{
+                .type = "client_cert",
+                .id = std::to_string(*auth_result.client_cert_record_id),
+            },
+            "auth",
+            auth_result.decision ==
+                    roche_limit::auth_core::AuthDecision::Allow
+                ? "allow"
+                : "deny",
+            auth_result.reason);
+      }
       const bool audit_allow =
           roche_limit::auth_store::audit_auth_allow_enabled();
       if (auth_result.decision == roche_limit::auth_core::AuthDecision::Deny ||
@@ -302,13 +339,20 @@ void register_auth_routes(
                             roche_limit::auth_core::AuthDecision::Allow
                         ? "auth_allow"
                         : "auth_deny",
-                .actor_type = auth_result.api_key_record_id.has_value()
-                                  ? "api_key"
-                                  : "ip",
-                .actor_id = auth_result.api_key_record_id.has_value()
-                                ? std::optional<std::string>(std::to_string(
-                                      *auth_result.api_key_record_id))
-                                : std::nullopt,
+                .actor_type =
+                    auth_result.api_key_record_id.has_value()
+                        ? "api_key"
+                        : (auth_result.client_cert_record_id.has_value()
+                               ? "client_cert"
+                               : "ip"),
+                .actor_id =
+                    auth_result.api_key_record_id.has_value()
+                        ? std::optional<std::string>(std::to_string(
+                              *auth_result.api_key_record_id))
+                        : (auth_result.client_cert_record_id.has_value()
+                               ? std::optional<std::string>(std::to_string(
+                                     *auth_result.client_cert_record_id))
+                               : std::nullopt),
                 .target_type = "service",
                 .target_id = request_context.service_name,
                 .service_name = request_context.service_name,

@@ -19,12 +19,21 @@ struct ParsedRequiredAccessLevel {
     bool valid{true};
 };
 
+struct ParsedDefaultAccessLevel {
+    int value{0};
+    bool present{false};
+    bool valid{true};
+};
+
 bool is_valid_target_service_name(std::string_view service_name) noexcept;
 bool has_multiple_single_value_header_values(std::string_view header_value) noexcept;
 bool forwarded_client_ip_headers_conflict(std::string_view real_ip_header,
                                           std::string_view forwarded_for_header);
 bool forwarded_for_chain_is_valid(std::string_view forwarded_for_header) noexcept;
 ParsedRequiredAccessLevel parse_required_access_level_header(std::string_view header_value);
+ParsedDefaultAccessLevel parse_default_access_level_header(std::string_view header_value);
+std::optional<std::string>
+normalize_client_cert_fingerprint(std::string_view raw_fingerprint);
 std::string resolve_request_client_ip(const drogon::HttpRequestPtr& request);
 
 roche_limit::auth_core::RequestContext build_request_context(

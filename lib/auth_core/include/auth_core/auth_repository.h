@@ -1,6 +1,7 @@
 #pragma once
 
 #include "api_key_record.h"
+#include "client_cert_record.h"
 #include "ip_rule_record.h"
 
 #include <cstdint>
@@ -34,6 +35,16 @@ public:
 
   virtual void note_api_key_failure(std::int64_t api_key_id,
                                     std::string_view client_ip) const = 0;
+
+  virtual std::optional<ClientCertRecord>
+  find_client_cert(std::string_view fingerprint_sha256) const = 0;
+
+  virtual std::optional<ClientCertServiceLevelRecord>
+  find_client_cert_service_level(std::int64_t client_cert_id,
+                                 std::string_view service_name) const = 0;
+
+  virtual void note_client_cert_success(std::int64_t client_cert_id,
+                                        std::string_view client_ip) const = 0;
 };
 
 } // namespace roche_limit::auth_core
